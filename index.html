@@ -17,6 +17,9 @@ h1{font-size:18px;margin:4px 0 8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px}
 .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
+.lvs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.lvb{padding:12px 0;border-radius:8px;border:2px solid var(--line);background:var(--bg);font-size:15px;width:100%}
+.lvb.on{border-color:var(--accent);font-weight:700}
 .mode{padding:12px 0;border-radius:8px;border:2px solid var(--line);background:var(--bg);font-size:15px;width:100%}
 .mode.on{border-color:var(--accent);font-weight:700}
 .grid{display:grid;grid-template-columns:16px repeat(8,minmax(0,1fr));gap:2px}
@@ -76,6 +79,12 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 <h1>⛏ 挖地尋寶 推算助手</h1>
 
 <div class="card">
+  <div style="font-size:13px;margin-bottom:6px"><b>版面</b>（選擇後會清空盤面並自動設定寶藏數量）</div>
+  <div class="lvs" id="lvs"></div>
+  <div class="small" id="lvinfo" style="margin-top:6px"></div>
+</div>
+
+<div class="card">
   <div class="small" style="margin-bottom:6px"><b>空格</b>：標記挖過沒寶藏的格子（✕），再點一次取消。<br><b>整件寶藏</b>：選好同一個寶藏的所有格子，按確認。<br><b>清除</b>：清掉格子的標記；點已完成（✓）的格子，可取消整件寶藏。</div>
   <div class="modes" id="modes"></div>
   <button class="reset" id="reset">全部重設</button>
@@ -117,6 +126,25 @@ const ORDER=["q3","q2","p3v","p3h","p3","p2v","p2h","p2"];
 const DONE={p2:4,p3:5,q2:6,q3:7};
 const COL={p2:"#d9b92e",p3:"#4a90d0",q2:"#2fa66a",q3:"#cc4560"};
 const DEFAULT_COUNTS={p2:2,p2v:0,p2h:0,p3:2,p3v:0,p3h:0,q2:2,q3:2};
+const ZERO={p2:0,p2v:0,p2h:0,p3:0,p3v:0,p3h:0,q2:0,q3:0};
+const LAYOUTS={
+  1:{p2v:1,p2h:1,p3v:1,p3h:2,q2:2,q3:2},
+  2:{p2h:2,p2v:1,p3v:3,p3h:2,q2:2,q3:1},
+  3:{p2h:3,p3v:1,p3h:2,q2:4,q3:1},
+  4:{p2h:1,p3h:4,q2:5}
+};
+let layout=0;
+function layoutText(n){
+  const L=LAYOUTS[n],nm={p2v:'1x2直',p2h:'1x2橫',p3v:'1x3直',p3h:'1x3橫',q2:'2x2',q3:'3x3'};
+  return Object.keys(nm).filter(k=>L[k]).map(k=>nm[k]+' ×'+L[k]).join('、');
+}
+function applyLayout(n){
+  if(state.some(v=>v!==0)&&!confirm('切換版面會清空目前盤面，確定嗎？'))return;
+  sel.clear();
+  state=new Array(N*N).fill(0);gid=new Array(N*N).fill(0);gnext=1;gbk={};
+  counts={...ZERO,...LAYOUTS[n]};layout=n;
+  save();touch();render();
+}
 // 預設：截圖中已知 3 個寶藏格（列,欄 從 1 起算）
 const DEFAULT_TREASURE=[];
 
@@ -211,14 +239,15 @@ function renderBar(){
 function defaults(){
   state=new Array(N*N).fill(0);
   for(const [r,c] of DEFAULT_TREASURE)state[(r-1)*N+c-1]=2;
-  counts={...DEFAULT_COUNTS};
+  counts={...DEFAULT_COUNTS};layout=0;
   gid=new Array(N*N).fill(0);gnext=1;gbk={};
 }
-function save(){try{localStorage.setItem("digHelper2",JSON.stringify({v:7,state,counts,gid,gnext,gbk}))}catch(e){}}
+function save(){try{localStorage.setItem("digHelper2",JSON.stringify({v:7,state,counts,gid,gnext,gbk,layout}))}catch(e){}}
 function load(){
   try{
     const s=localStorage.getItem("digHelper2");
-    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts=o.v===7?{...DEFAULT_COUNTS,...o.counts}:{...DEFAULT_COUNTS};if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1;gbk=o.gbk||{}}return}}
+    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts=o.v===7?{...DEFAULT_COUNTS,...o.counts}:{...DEFAULT_COUNTS};layout=LAYOUTS[o.layout]?o.layout:0;
+      if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1;gbk=o.gbk||{}}return}}
   }catch(e){}
   defaults();
 }
@@ -482,6 +511,8 @@ function render(){
     sg.innerHTML=t;
   }
   document.querySelectorAll(".mode").forEach(b=>b.classList.toggle("on",b.dataset.m===mode));
+  document.querySelectorAll(".lvb").forEach(b=>b.classList.toggle("on",Number(b.dataset.lv)===layout));
+  document.getElementById("lvinfo").textContent=layout?("版面Lv"+layout+"："+layoutText(layout)):"目前為自訂數量";
   for(const k of ORDER)document.getElementById("c_"+k).textContent=counts[k];
   renderBar();
   updateCalc();
@@ -499,6 +530,9 @@ function updateCalc(){
 }
 
 function build(){
+  const lv=document.getElementById("lvs");
+  lv.innerHTML=[1,2,3,4].map(n=>`<button class="lvb" data-lv="${n}">版面Lv${n}</button>`).join("");
+  lv.onclick=e=>{const b=e.target.closest(".lvb");if(b)applyLayout(Number(b.dataset.lv))};
   const m=document.getElementById("modes");
   m.innerHTML=MODES.map(([k,n])=>`<button class="mode" data-m="${k}">${n}</button>`).join("");
   m.onclick=e=>{const b=e.target.closest(".mode");if(b){mode=b.dataset.m;sel.clear();render()}};
@@ -520,7 +554,7 @@ function build(){
   c.onclick=e=>{
     const b=e.target.closest("button");if(!b)return;
     pushHist();
-    const k=b.dataset.k;counts[k]=Math.max(0,counts[k]+Number(b.dataset.d));
+    const k=b.dataset.k;counts[k]=Math.max(0,counts[k]+Number(b.dataset.d));layout=0;
     save();touch();render();
   };
   document.getElementById("grid").onclick=e=>{
