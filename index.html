@@ -38,9 +38,7 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 .refimg{width:100%;display:block;border-radius:8px;border:1px solid var(--line)}
 .calcbtn{width:100%;padding:12px;border-radius:10px;border:2px solid var(--accent);background:var(--card);font-size:15px;font-weight:700;margin-bottom:10px}
 .calcbtn.hot{background:var(--accent);color:#fff}
-.calcbtn.busy{opacity:.7}
 .calcbtn.bad{border-color:#d9534f;color:#ff8a80}
-.cell.dim{opacity:.25}
 .cell.hid{display:none}
 .cell.mg{font-size:14px}
 .cell.hl{box-shadow:inset 0 0 0 4px #a855f7}
@@ -450,7 +448,6 @@ function render(){
     else txt="✓";
     const isSel=bk?bk.cells.every(x=>sel.has(x)):sel.has(i);
     if(isSel)cls+=" sel";
-    else if(sv&&!hidden.has(i))cls+=" dim";
     if(hl.has(i))cls+=" hl";
     const el=els[i];
     if(el.className!==cls)el.className=cls;
