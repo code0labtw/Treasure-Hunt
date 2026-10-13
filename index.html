@@ -57,7 +57,19 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 .gbtn:disabled{opacity:.4}
 .cell.top{outline:3px solid var(--accent);outline-offset:-1px;z-index:1}
 .cell.sure{box-shadow:inset 0 0 0 2px #2e9e3e}
-.counts{display:grid;grid-template-columns:1fr;gap:8px}
+.counts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.ti{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:14px;border:1px solid var(--line);background:linear-gradient(160deg,rgba(255,255,255,.05),rgba(255,255,255,0) 60%),var(--bg);min-width:0}
+.ti .ic{flex:none;width:46px;height:46px;display:grid;place-items:center;border-radius:10px;background:rgba(255,255,255,.04)}
+.ti .sh{display:grid;gap:3px}
+.ti .sh i{display:block;width:11px;height:11px;border-radius:3px}
+.ti .tx{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.ti .tx span{font-size:13px;color:var(--muted,#b9a98f);white-space:nowrap}
+.ti .tx b{font-size:26px;font-weight:700;letter-spacing:.5px}
+.ti.zero .tx b{color:#6f6556}
+.ti.zero{border-style:dashed}
+.ctitle{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:10px}
+.ctitle b{font-size:15px}
+.ctitle span{font-size:12px;color:var(--muted,#b9a98f)}
 .cnt{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:15px}
 .cnt .nm{display:flex;align-items:center;white-space:nowrap}
 .cnt .st{display:flex;align-items:center;gap:6px}
@@ -99,9 +111,8 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 <div class="card" id="plc" style="display:none"></div>
 
 <div class="card">
-  <div style="font-size:13px;margin-bottom:6px"><b>寶藏數量</b></div>
+  <div class="ctitle"><b>寶藏數量</b></div>
   <div class="counts" id="counts"></div>
-  <div class="small" style="margin-top:6px">請依寶藏方向放在「直行」或「橫行」。用「整件寶藏」確認時，會扣方向相同的數量。</div>
 </div>
 
 <div class="card" id="legend">
@@ -247,7 +258,7 @@ function save(){try{localStorage.setItem("digHelper2",JSON.stringify({v:7,state,
 function load(){
   try{
     const s=localStorage.getItem("digHelper2");
-    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts=o.v===7?{...DEFAULT_COUNTS,...o.counts,p2:0,p3:0}:{...DEFAULT_COUNTS};layout=LAYOUTS[o.layout]?o.layout:0;
+    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N&&LAYOUTS[o.layout]){state=o.state.map(x=>x===2?0:x);counts=o.v===7?{...DEFAULT_COUNTS,...o.counts,p2:0,p3:0}:{...DEFAULT_COUNTS};layout=LAYOUTS[o.layout]?o.layout:0;
       if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1;gbk=o.gbk||{}}return}}
   }catch(e){}
   defaults();
@@ -491,7 +502,7 @@ function render(){
   }else if(!samples){
     sg.innerHTML="⚠️ 找不到符合目前資料的擺法，所以格子沒有顯示機率。<br>"+diagnose();
   }else if(need===0){
-    sg.innerHTML=state.some(v=>v>=3)?"🎉 下方數量都是 0，代表寶藏都找齊了，不需要再挖。":"請先在下方「寶藏數量」設定還沒挖完的寶藏數量，再按「計算機率」。";
+    sg.innerHTML=state.some(v=>v>=3)?"🎉 下方數量都是 0，代表寶藏都找齊了，不需要再挖。":"請先在上方選擇版面。";
   }else{
     let t;
     if(bmap.size){
@@ -513,7 +524,7 @@ function render(){
   }
   document.querySelectorAll(".mode").forEach(b=>b.classList.toggle("on",b.dataset.m===mode));
   document.querySelectorAll(".lvb").forEach(b=>b.classList.toggle("on",Number(b.dataset.lv)===layout));
-  for(const k of ORDER){const e=document.getElementById("c_"+k);if(e)e.textContent=counts[k]}
+  for(const k of ORDER){const e=document.getElementById("c_"+k);if(e){e.textContent=counts[k];e.closest(".ti").classList.toggle("zero",!counts[k])}}
   renderBar();
   updateCalc();
   renderPlc();
@@ -547,16 +558,11 @@ function build(){
   };
   document.getElementById("shapes").innerHTML=[["p2",1,2,"2格（直/橫）"],["p3",1,3,"3格（直/橫）"],["q2",2,2,"4格（2×2）"],["q3",3,3,"9格（3×3）"]].map(([k,r,c,t])=>`<div class="shp-row"><span class="shp" style="border-color:${COL[k]};background:${COL[k]}33;grid-template-columns:repeat(${c},14px);grid-template-rows:repeat(${r},14px)">${"<i></i>".repeat(r*c)}</span><span>${t}</span></div>`).join("");
   const c=document.getElementById("counts");
-  const stp=k=>`<span class="st"><button data-k="${k}" data-d="-1">−</button><b id="c_${k}"></b><button data-k="${k}" data-d="1">+</button></span>`;
-  const row=k=>`<div class="cnt"><span class="nm"><i class="dot" style="background:${COL[k]}"></i>${TYPES[k].name}</span>${stp(k)}</div>`;
-  const grp=(b,title)=>`<div class="cg"><div class="cgt"><i class="dot" style="background:${COL[b]}"></i>${title}</div><div class="cg3">`+[[b+"v","直行"],[b+"h","橫行"]].map(([k,l])=>`<div class="cs"><div class="small">${l}</div>${stp(k)}</div>`).join("")+`</div></div>`;
-  c.innerHTML=grp("p2","1×2")+grp("p3","1×3")+row("q2")+row("q3");
-  c.onclick=e=>{
-    const b=e.target.closest("button");if(!b)return;
-    pushHist();
-    const k=b.dataset.k;counts[k]=Math.max(0,counts[k]+Number(b.dataset.d));layout=0;
-    save();touch();render();
-  };
+  const TILE=[["p2v","1×2 直",2,1],["p2h","1×2 橫",1,2],["p3v","1×3 直",3,1],["p3h","1×3 橫",1,3],["q2","2×2",2,2],["q3","3×3",3,3]];
+  c.innerHTML=TILE.map(([k,t,r,cc])=>{
+    const col=COL[k.slice(0,2)];
+    return `<div class="ti"><span class="ic"><span class="sh" style="grid-template-columns:repeat(${cc},11px)">${`<i style="background:${col}"></i>`.repeat(r*cc)}</span></span><span class="tx"><span>${t}</span><b id="c_${k}"></b></span></div>`;
+  }).join("");
   document.getElementById("grid").onclick=e=>{
     const b=e.target.closest(".cell");if(!b)return;
     let i=Number(b.dataset.i);
