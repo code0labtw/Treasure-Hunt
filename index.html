@@ -40,7 +40,6 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 .calcbtn.hot{background:var(--accent);color:#fff}
 .calcbtn.busy{opacity:.7}
 .calcbtn.bad{border-color:#d9534f;color:#ff8a80}
-.cell.stale{opacity:.45}
 .cell.dim{opacity:.25}
 .cell.hid{display:none}
 .cell.mg{font-size:14px}
@@ -119,7 +118,7 @@ const TYPES={
 const ORDER=["q3","q2","p3v","p3h","p3","p2v","p2h","p2"];
 const DONE={p2:4,p3:5,q2:6,q3:7};
 const COL={p2:"#d9b92e",p3:"#4a90d0",q2:"#2fa66a",q3:"#cc4560"};
-const DEFAULT_COUNTS={p2:0,p2v:0,p2h:0,p3:0,p3v:0,p3h:0,q2:0,q3:0};
+const DEFAULT_COUNTS={p2:2,p2v:0,p2h:0,p3:2,p3v:0,p3h:0,q2:2,q3:2};
 // 預設：截圖中已知 3 個寶藏格（列,欄 從 1 起算）
 const DEFAULT_TREASURE=[];
 
@@ -199,7 +198,7 @@ function renderBar(){
   if(mode!=='group')return;
   const d=detect();
   let h='';
-  if(!sel.size)h='<div class="small">點選同一個寶藏的所有格子（要是長方形），再按確認。確認後這些格子變成「已完成」，對應的數量自動 −1。</div>';
+  if(!sel.size)h='<div class="small">點選同一個寶藏的所有格子，再按確認，可連續選。</div>';
   else if(d){
     const bk=bucketFor(d),nm=pieceName(d);
     if(bk){
@@ -217,11 +216,11 @@ function defaults(){
   counts={...DEFAULT_COUNTS};
   gid=new Array(N*N).fill(0);gnext=1;gbk={};
 }
-function save(){try{localStorage.setItem("digHelper2",JSON.stringify({v:2,state,counts,gid,gnext,gbk}))}catch(e){}}
+function save(){try{localStorage.setItem("digHelper2",JSON.stringify({v:7,state,counts,gid,gnext,gbk}))}catch(e){}}
 function load(){
   try{
     const s=localStorage.getItem("digHelper2");
-    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts=o.v===2?{...DEFAULT_COUNTS,...o.counts}:{...DEFAULT_COUNTS};if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1;gbk=o.gbk||{}}return}}
+    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts=o.v===7?{...DEFAULT_COUNTS,...o.counts}:{...DEFAULT_COUNTS};if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1;gbk=o.gbk||{}}return}}
   }catch(e){}
   defaults();
 }
@@ -520,7 +519,7 @@ function build(){
   const stp=k=>`<span class="st"><button data-k="${k}" data-d="-1">−</button><b id="c_${k}"></b><button data-k="${k}" data-d="1">+</button></span>`;
   const row=k=>`<div class="cnt"><span class="nm"><i class="dot" style="background:${COL[k]}"></i>${TYPES[k].name}</span>${stp(k)}</div>`;
   const grp=(b,title)=>`<div class="cg"><div class="cgt"><i class="dot" style="background:${COL[b]}"></i>${title}</div><div class="cg3">`+[[b+"v","直行"],[b+"h","橫行"],[b,"直橫都可"]].map(([k,l])=>`<div class="cs"><div class="small">${l}</div>${stp(k)}</div>`).join("")+`</div></div>`;
-  c.innerHTML=grp("p2","2格寶藏")+grp("p3","3格寶藏")+row("q2")+row("q3");
+  c.innerHTML=grp("p2","2格")+grp("p3","3格")+row("q2")+row("q3");
   c.onclick=e=>{
     const b=e.target.closest("button");if(!b)return;
     pushHist();
