@@ -29,7 +29,8 @@ button{font:inherit;color:inherit}
 .cell.s4{background:#e0b020}
 .cell.s5{background:#5aa0e8}
 .cell.s6{background:#4caf62}
-.cell.s7{background:#e05a9d}
+.cell.s7{background:#e5484d}
+.bx{display:inline-block;width:16px;height:16px;border-radius:4px;margin-right:6px;vertical-align:-3px;border:3px solid}
 .dot{display:inline-block;width:14px;height:14px;border-radius:4px;margin-right:6px;vertical-align:-2px}
 .chips{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:13px;margin-top:6px}
 .cell.top::after{content:"★";position:absolute;top:0;right:2px;font-size:9px;color:var(--fg)}
@@ -82,7 +83,7 @@ const MODES=[["empty","空格"],["group","整件寶藏"],["clear","清除"]];
 const TYPES={p2:{name:"直/橫 2格",shapes:[[1,2],[2,1]]},p3:{name:"直/橫 3格",shapes:[[1,3],[3,1]]},q2:{name:"2×2",shapes:[[2,2]]},q3:{name:"3×3",shapes:[[3,3]]}};
 const ORDER=["q3","q2","p3","p2"];
 const DONE={p2:4,p3:5,q2:6,q3:7};
-const COL={p2:"#e0b020",p3:"#5aa0e8",q2:"#4caf62",q3:"#e05a9d"};
+const COL={p2:"#e0b020",p3:"#5aa0e8",q2:"#4caf62",q3:"#e5484d"};
 const DEFAULT_COUNTS={p2:3,p3:5,q2:2,q3:1};
 // 預設：截圖中已知 3 個寶藏格（列,欄 從 1 起算）
 const DEFAULT_TREASURE=[];
@@ -289,7 +290,7 @@ function build(){
     if(!hist.length)return;
     const o=JSON.parse(hist.pop());state=o.state;counts=o.counts;sel.clear();save();render();schedule();
   };
-  document.getElementById("legend").innerHTML='<b style="font-size:13px">說明</b><div class="chips">'+["p2","p3","q2","q3"].map(k=>`<span><i class="dot" style="background:${COL[k]}"></i>${TYPES[k].name}</span>`).join("")+"</div>";
+  document.getElementById("legend").innerHTML='<b style="font-size:13px">說明（框線顏色＝寶藏格數）</b><div class="chips">'+[["p2","2格（直/橫）"],["p3","3格（直/橫）"],["q2","4格（2×2）"],["q3","9格（3×3）"]].map(([k,t])=>`<span><i class="dot" style="background:${COL[k]}"></i>${t}</span>`).join("")+"</div>";
   const c=document.getElementById("counts");
   c.innerHTML=["p2","p3","q2","q3"].map(k=>`<div class="cnt"><span class="nm"><i class="dot" style="background:${COL[k]}"></i>${TYPES[k].name}</span><span class="st"><button data-k="${k}" data-d="-1">−</button><b id="c_${k}"></b><button data-k="${k}" data-d="1">+</button></span></div>`).join("");
   c.onclick=e=>{
