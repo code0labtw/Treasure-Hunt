@@ -126,7 +126,7 @@ const TYPES={
 const ORDER=["q3","q2","p3v","p3h","p3","p2v","p2h","p2"];
 const DONE={p2:4,p3:5,q2:6,q3:7};
 const COL={p2:"#d9b92e",p3:"#4a90d0",q2:"#2fa66a",q3:"#cc4560"};
-const DEFAULT_COUNTS={p2:0,p2v:1,p2h:1,p3:0,p3v:1,p3h:2,q2:2,q3:2};
+const DEFAULT_COUNTS={p2:0,p2v:1,p2h:1,p3:0,p3v:1,p3h:2,q2:2,q3:2}; // = 版面Lv1
 const ZERO={p2:0,p2v:0,p2h:0,p3:0,p3v:0,p3h:0,q2:0,q3:0};
 const LAYOUTS={
   1:{p2v:1,p2h:1,p3v:1,p3h:2,q2:2,q3:2},
@@ -134,7 +134,7 @@ const LAYOUTS={
   3:{p2h:3,p3v:1,p3h:2,q2:4,q3:1},
   4:{p2h:1,p3h:4,q2:5}
 };
-let layout=0;
+let layout=1;
 function layoutText(n){
   const L=LAYOUTS[n],nm={p2v:'1x2直',p2h:'1x2橫',p3v:'1x3直',p3h:'1x3橫',q2:'2x2',q3:'3x3'};
   return Object.keys(nm).filter(k=>L[k]).map(k=>nm[k]+' ×'+L[k]).join('、');
