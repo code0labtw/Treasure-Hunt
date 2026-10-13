@@ -92,7 +92,7 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 <div class="card" id="plc" style="display:none"></div>
 
 <div class="card">
-  <div style="font-size:13px;margin-bottom:6px"><b>還沒挖完的寶藏數量</b></div>
+  <div style="font-size:13px;margin-bottom:6px"><b>寶藏數量</b></div>
   <div class="counts" id="counts"></div>
   <div class="small" style="margin-top:6px">已經知道方向的，放在「直行」或「橫行」；還不確定方向的，放在「直橫都可」。用「整件寶藏」確認時，會優先扣方向相同的數量。</div>
 </div>
@@ -119,7 +119,7 @@ const TYPES={
 const ORDER=["q3","q2","p3v","p3h","p3","p2v","p2h","p2"];
 const DONE={p2:4,p3:5,q2:6,q3:7};
 const COL={p2:"#d9b92e",p3:"#4a90d0",q2:"#2fa66a",q3:"#cc4560"};
-const DEFAULT_COUNTS={p2:3,p2v:0,p2h:0,p3:5,p3v:0,p3h:0,q2:2,q3:1};
+const DEFAULT_COUNTS={p2:0,p2v:0,p2h:0,p3:0,p3v:0,p3h:0,q2:0,q3:0};
 // 預設：截圖中已知 3 個寶藏格（列,欄 從 1 起算）
 const DEFAULT_TREASURE=[];
 
@@ -217,11 +217,11 @@ function defaults(){
   counts={...DEFAULT_COUNTS};
   gid=new Array(N*N).fill(0);gnext=1;gbk={};
 }
-function save(){try{localStorage.setItem("digHelper2",JSON.stringify({state,counts,gid,gnext,gbk}))}catch(e){}}
+function save(){try{localStorage.setItem("digHelper2",JSON.stringify({v:2,state,counts,gid,gnext,gbk}))}catch(e){}}
 function load(){
   try{
     const s=localStorage.getItem("digHelper2");
-    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts={...DEFAULT_COUNTS,...o.counts};if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1;gbk=o.gbk||{}}return}}
+    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts=o.v===2?{...DEFAULT_COUNTS,...o.counts}:{...DEFAULT_COUNTS};if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1;gbk=o.gbk||{}}return}}
   }catch(e){}
   defaults();
 }
@@ -392,7 +392,7 @@ function renderPlc(){
   const total=ORDER.reduce((a,k)=>a+(counts[k]||0),0);
   let h="";
   if(dirty||!samples||total===0||!plcData)h="";
-  else if(total>3)h=`<div class="small">還剩 ${total} 個寶藏，可能的位置太多，請看格子上的機率。剩 3 個以內時，這裡會直接列出每個寶藏可能放在哪裡。</div>`;
+  else if(total>3)h="";
   else{
     h='<b style="font-size:13px">可能位置（點一下，棋盤會標出來）</b>';
     for(const k of ORDER){
@@ -465,7 +465,7 @@ function render(){
   }else if(!samples){
     sg.innerHTML="⚠️ 找不到符合目前資料的擺法，所以格子沒有顯示機率。<br>"+diagnose();
   }else if(need===0){
-    sg.innerHTML="🎉 下方數量都是 0，代表寶藏都找齊了，不需要再挖。";
+    sg.innerHTML=state.some(v=>v>=3)?"🎉 下方數量都是 0，代表寶藏都找齊了，不需要再挖。":"請先在下方「寶藏數量」設定還沒挖完的寶藏數量，再按「計算機率」。";
   }else{
     let t;
     if(bmap.size){
