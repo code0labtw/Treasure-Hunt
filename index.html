@@ -15,9 +15,9 @@ html{scroll-padding-top:env(safe-area-inset-top,0px)}
 body{margin:0;overflow-x:hidden;background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang TC","Noto Sans TC",sans-serif;padding:12px;max-width:520px;margin:0 auto}
 h1{font-size:18px;margin:4px 0 8px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px}
-.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
 button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highlight-color:transparent}
-.mode{padding:8px 0;border-radius:8px;border:2px solid var(--line);background:var(--bg);font-size:12px}
+.mode{padding:12px 0;border-radius:8px;border:2px solid var(--line);background:var(--bg);font-size:15px;width:100%}
 .mode.on{border-color:var(--accent);font-weight:700}
 .grid{display:grid;grid-template-columns:16px repeat(8,minmax(0,1fr));gap:2px}
 .hd{font-size:11px;color:var(--muted);text-align:center;align-self:center}
@@ -78,7 +78,7 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 <h1>⛏ 挖地尋寶 推算助手</h1>
 
 <div class="card">
-  <div class="small" style="margin-bottom:6px">先選模式，再點格子。格子上的 % 是有寶藏的機率。點有勾的格子，可取消整件寶藏。</div>
+  <div class="small" style="margin-bottom:6px"><b>空格</b>：標記挖過沒寶藏的格子（✕），再點一次取消。<br><b>整件寶藏</b>：選好同一個寶藏的所有格子，按確認。<br><b>清除</b>：清掉格子的標記；點已完成（✓）的格子，可取消整件寶藏。</div>
   <div class="modes" id="modes"></div>
   <button class="reset" id="reset">全部重設</button>
 </div>
