@@ -36,6 +36,18 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 .shp{display:grid;border:3px solid;border-radius:5px;flex:none}
 .shp i{border:1px solid rgba(128,128,128,.35)}
 .refimg{width:100%;display:block;border-radius:8px;border:1px solid var(--line)}
+.calcbtn{width:100%;padding:12px;border-radius:10px;border:2px solid var(--accent);background:var(--card);font-size:15px;font-weight:700;margin-bottom:10px}
+.calcbtn.hot{background:var(--accent);color:#fff}
+.calcbtn.busy{opacity:.7}
+.calcbtn.bad{border-color:#d9534f;color:#ff8a80}
+.cell.stale{opacity:.45}
+.cell.dim{opacity:.25}
+.cell.hid{display:none}
+.cell.mg{font-size:14px}
+.cell.hl{box-shadow:inset 0 0 0 4px #a855f7}
+.plt{display:flex;align-items:center;font-size:14px;margin-top:10px}
+.pl{display:flex;justify-content:space-between;align-items:center;width:100%;padding:10px 12px;border:2px solid var(--line);border-radius:8px;background:var(--bg);margin-top:6px;font-size:15px}
+.pl.on{border-color:#a855f7}
 .dot{display:inline-block;width:14px;height:14px;border-radius:4px;margin-right:6px;vertical-align:-2px}
 .chips{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;font-size:13px;margin-top:6px}
 .cell.top::after{content:"★";position:absolute;top:0;right:2px;font-size:9px;color:var(--fg)}
@@ -49,6 +61,13 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 .cnt{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:10px;padding:6px 10px;font-size:15px}
 .cnt .nm{display:flex;align-items:center;white-space:nowrap}
 .cnt .st{display:flex;align-items:center;gap:6px}
+.cg{border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+.cgt{display:flex;align-items:center;font-size:15px;margin-bottom:6px;white-space:nowrap}
+.cg3{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.cs{display:flex;flex-direction:column;align-items:center;gap:4px}
+.cs .st{display:flex;align-items:center;gap:2px}
+.cg button{width:30px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:18px;line-height:1;padding:0}
+.cg b{min-width:22px;text-align:center;font-size:17px}
 .cnt b{min-width:32px;text-align:center;font-size:18px}
 .cnt button{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--bg);font-size:20px;line-height:1;padding:0}
 .sug{font-size:14px;line-height:1.6}
@@ -60,20 +79,22 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
 <h1>⛏ 挖地尋寶 推算助手</h1>
 
 <div class="card">
-  <div class="small" style="margin-bottom:6px">先選模式，再點格子。格子上的 % 是有寶藏的機率。</div>
+  <div class="small" style="margin-bottom:6px">先選模式，再點格子。格子上的 % 是有寶藏的機率。點有勾的格子，可取消整件寶藏。</div>
   <div class="modes" id="modes"></div>
-  <button class="reset" id="undo">↶ 復原上一步</button>
+  <button class="reset" id="reset">全部重設</button>
 </div>
 
 <div class="card"><div class="grid" id="grid"></div></div>
 
 <div class="card" id="gbar" style="display:none"></div>
+<button class="calcbtn" id="calc">▶ 計算機率</button>
 <div class="card sug" id="sug"></div>
+<div class="card" id="plc" style="display:none"></div>
 
 <div class="card">
   <div style="font-size:13px;margin-bottom:6px"><b>還沒挖完的寶藏數量</b></div>
   <div class="counts" id="counts"></div>
-  <div class="small" style="margin-top:6px">用「整件寶藏」框選確認後會自動 −1，也可以用 +/− 手動調整。</div>
+  <div class="small" style="margin-top:6px">已經知道方向的，放在「直行」或「橫行」；還不確定方向的，放在「直橫都可」。用「整件寶藏」確認時，會優先扣方向相同的數量。</div>
 </div>
 
 <div class="card" id="legend">
@@ -83,18 +104,22 @@ button{font:inherit;color:inherit;touch-action:manipulation;-webkit-tap-highligh
   <div class="small" style="margin-top:6px">遊戲內實際畫面：黃框 2格、藍框 3格、綠框 2×2、紅框 3×3。</div>
 </div>
 
-<div class="card small">
-  <button class="reset" id="reset">全部重設</button>
-</div>
-
 <script>
 const N=8;
 const MODES=[["empty","空格"],["group","整件寶藏"],["clear","清除"]];
-const TYPES={p2:{name:"直/橫 2格",shapes:[[1,2],[2,1]]},p3:{name:"直/橫 3格",shapes:[[1,3],[3,1]]},q2:{name:"2×2",shapes:[[2,2]]},q3:{name:"3×3",shapes:[[3,3]]}};
-const ORDER=["q3","q2","p3","p2"];
+const TYPES={
+  p2:{name:"2格 直橫都可",base:"p2",shapes:[[1,2],[2,1]]},
+  p2v:{name:"直行 2格",base:"p2",shapes:[[2,1]]},
+  p2h:{name:"橫行 2格",base:"p2",shapes:[[1,2]]},
+  p3:{name:"3格 直橫都可",base:"p3",shapes:[[1,3],[3,1]]},
+  p3v:{name:"直行 3格",base:"p3",shapes:[[3,1]]},
+  p3h:{name:"橫行 3格",base:"p3",shapes:[[1,3]]},
+  q2:{name:"2×2",base:"q2",shapes:[[2,2]]},
+  q3:{name:"3×3",base:"q3",shapes:[[3,3]]}};
+const ORDER=["q3","q2","p3v","p3h","p3","p2v","p2h","p2"];
 const DONE={p2:4,p3:5,q2:6,q3:7};
 const COL={p2:"#d9b92e",p3:"#4a90d0",q2:"#2fa66a",q3:"#cc4560"};
-const DEFAULT_COUNTS={p2:3,p3:5,q2:2,q3:1};
+const DEFAULT_COUNTS={p2:3,p2v:0,p2h:0,p3:5,p3v:0,p3h:0,q2:2,q3:1};
 // 預設：截圖中已知 3 個寶藏格（列,欄 從 1 起算）
 const DEFAULT_TREASURE=[];
 
@@ -116,16 +141,20 @@ let state=new Array(N*N).fill(0); // 0 unknown 1 empty 2 treasure 3 done
 let counts={...DEFAULT_COUNTS};
 let mode="empty";
 let prob=new Array(N*N).fill(0),samples=0,picks=[];
-let timer=null,ess=0;
+let timer=null,ess=0,dirty=false,plcData=null,hl=new Set(),hlKey="";
+function touch(){
+  clearTimeout(timer);runId++;running=false;dirty=true;hl=new Set();hlKey="";
+}
 let sel=new Set(),hist=[];
-let gid=new Array(N*N).fill(0),gnext=1;
-function pushHist(){hist.push(JSON.stringify({state,counts,gid,gnext}));if(hist.length>60)hist.shift()}
+let gid=new Array(N*N).fill(0),gnext=1,gbk={};
+function pushHist(){hist.push(JSON.stringify({state,counts,gid,gnext,gbk}));if(hist.length>60)hist.shift()}
 function typeOf(code){return ({4:'p2',5:'p3',6:'q2',7:'q3'})[code]}
 function clearCell(i){
   if(state[i]>=4&&gid[i]){
-    const id=gid[i],t=typeOf(state[i]);
+    const id=gid[i],bk=gbk[id]||typeOf(state[i]);
     for(let j=0;j<N*N;j++)if(gid[j]===id){state[j]=0;gid[j]=0}
-    if(t)counts[t]++;
+    if(bk&&counts[bk]!==undefined)counts[bk]++;
+    delete gbk[id];
   }else{state[i]=0;gid[i]=0}
 }
 function detect(){
@@ -134,31 +163,49 @@ function detect(){
   const h=Math.max(...rs)-Math.min(...rs)+1,w=Math.max(...cs)-Math.min(...cs)+1;
   if(sel.size!==h*w)return null;
   const a=Math.min(h,w),b=Math.max(h,w);
-  if(a===1&&b===2)return 'p2';
-  if(a===1&&b===3)return 'p3';
-  if(a===2&&b===2)return 'q2';
-  if(a===3&&b===3)return 'q3';
+  const o=h>w?'v':(w>h?'h':null);
+  if(a===1&&b===2)return {t:'p2',o};
+  if(a===1&&b===3)return {t:'p3',o};
+  if(a===2&&b===2)return {t:'q2',o:null};
+  if(a===3&&b===3)return {t:'q3',o:null};
   return null;
 }
+// 優先扣「方向相同」的數量，沒有再扣「直橫都可」
+function bucketFor(d){
+  if(!d)return null;
+  if(d.t==='q2'||d.t==='q3')return counts[d.t]>0?d.t:null;
+  const sp=d.t+d.o;
+  if(counts[sp]>0)return sp;
+  if(counts[d.t]>0)return d.t;
+  return null;
+}
+function pieceName(d){
+  if(d.t==='q2')return '2×2';
+  if(d.t==='q3')return '3×3';
+  return (d.o==='v'?'直行 ':'橫行 ')+(d.t==='p2'?'2格':'3格');
+}
 function confirmGroup(){
-  const t=detect();if(!t||counts[t]<=0)return;
+  const d=detect(),bk=bucketFor(d);if(!bk)return;
   pushHist();
   const id=gnext++;
-  for(const i of sel){state[i]=DONE[t];gid[i]=id}
-  counts[t]=Math.max(0,counts[t]-1);
-  sel.clear();save();render();schedule();
+  for(const i of sel){state[i]=DONE[d.t];gid[i]=id}
+  gbk[id]=bk;
+  counts[bk]=Math.max(0,counts[bk]-1);
+  sel.clear();save();touch();render();
 }
 function renderBar(){
   const bar=document.getElementById('gbar');
   bar.style.display=mode==='group'?'block':'none';
-  document.getElementById('undo').disabled=!hist.length;
   if(mode!=='group')return;
-  const t=detect();
+  const d=detect();
   let h='';
-  if(!sel.size)h='<div class="small">點選同一個寶藏的所有格子（要是長方形），再按確認。確認後這些格子變成「已完成」，該類數量自動 −1。</div>';
-  else if(t){
-    const c=counts[t];
-    h=`<div style="font-size:14px">已選 ${sel.size} 格 → <b>${TYPES[t].name}</b></div><button class="gbtn" data-a="ok" ${c<=0?'disabled':''}>確認（${TYPES[t].name}：${c} → ${Math.max(0,c-1)}）</button>`+(c<=0?'<div class="small">此類型數量已經是 0，請先把數量調整好。</div>':'');
+  if(!sel.size)h='<div class="small">點選同一個寶藏的所有格子（要是長方形），再按確認。確認後這些格子變成「已完成」，對應的數量自動 −1。</div>';
+  else if(d){
+    const bk=bucketFor(d),nm=pieceName(d);
+    if(bk){
+      const c=counts[bk];
+      h=`<div style="font-size:14px">已選 ${sel.size} 格 → <b>${nm}</b></div><button class="gbtn" data-a="ok">確認（${TYPES[bk].name}：${c} → ${c-1}）</button>`;
+    }else h=`<div style="font-size:14px">已選 ${sel.size} 格 → <b>${nm}</b></div><button class="gbtn" data-a="ok" disabled>確認</button><div class="small">這種寶藏的剩餘數量已經是 0，請先調整下方數量。</div>`;
   }else h=`<div style="font-size:14px">已選 ${sel.size} 格，形狀不符</div><div class="small">需要是 1×2、1×3、2×2、3×3 的長方形。</div>`;
   if(sel.size)h+='<button class="gbtn sec" data-a="cancel">取消選取</button>';
   if(bar.dataset.h!==h){bar.innerHTML=h;bar.dataset.h=h}
@@ -168,13 +215,13 @@ function defaults(){
   state=new Array(N*N).fill(0);
   for(const [r,c] of DEFAULT_TREASURE)state[(r-1)*N+c-1]=2;
   counts={...DEFAULT_COUNTS};
-  gid=new Array(N*N).fill(0);gnext=1;
+  gid=new Array(N*N).fill(0);gnext=1;gbk={};
 }
-function save(){try{localStorage.setItem("digHelper2",JSON.stringify({state,counts,gid,gnext}))}catch(e){}}
+function save(){try{localStorage.setItem("digHelper2",JSON.stringify({state,counts,gid,gnext,gbk}))}catch(e){}}
 function load(){
   try{
     const s=localStorage.getItem("digHelper2");
-    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts={...DEFAULT_COUNTS,...o.counts};if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1}return}}
+    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts={...DEFAULT_COUNTS,...o.counts};if(Array.isArray(o.gid)&&o.gid.length===N*N){gid=o.gid;gnext=o.gnext||1;gbk=o.gbk||{}}return}}
   }catch(e){}
   defaults();
 }
@@ -182,7 +229,7 @@ function load(){
 function rnd(n){return Math.floor(Math.random()*n)}
 function sampleOnce(){
   const covered=new Uint8Array(N*N);
-  const rem={...counts};let w=1;
+  const rem={...counts};let w=1;const used=[];
   const ok=pl=>{for(const x of pl){if(state[x]===1||state[x]>=3||covered[x])return false}return true};
   const rev=[];
   for(let i=0;i<N*N;i++)if(state[i]===2)rev.push(i);
@@ -206,30 +253,88 @@ function sampleOnce(){
       if(!opts.length)return null;
       w*=opts.length;
       last=opts[rnd(opts.length)];
+      used.push([k,last]);
       rem[k]--;for(const x of PL[k][last])covered[x]=1;
     }
   }
-  return {cv:covered,w};
+  return {cv:covered,w,used};
 }
 
 const TOTAL_MS=10000;
-let runId=0,elapsed=0,running=false;
-function compute(){
-  const my=++runId;
-  const hits=new Array(N*N).fill(0);let n=0,W=0,W2=0;
-  const t0=performance.now();
-  running=true;
-  function finish(){
-    samples=n;ess=n?W*W/W2:0;
-    prob=hits.map(h=>W?h/W:0);
-    const unk=[];
-    for(let i=0;i<N*N;i++)if(state[i]===0)unk.push(i);
-    unk.sort((x,y)=>prob[y]-prob[x]);
-    const tol=Math.max(0.015,0.5/Math.sqrt(ess||1));
-    picks=n?unk.filter(i=>prob[i]>0&&prob[i]>=prob[unk[0]]-tol).slice(0,6):[];
-    elapsed=performance.now()-t0;
-    render();
+let runId=0,elapsed=0,running=false,exact=false,blocks=null,bmap=new Map();
+function remTotal(){return ORDER.reduce((a,k)=>a+(counts[k]||0),0)}
+// 剩 3 個以內：把所有擺法逐一列舉（精確，不用抽樣）
+function enumerateExact(cap){
+  const list=[];for(const k of ORDER)for(let t=0;t<(counts[k]||0);t++)list.push(k);
+  const hits=new Float64Array(N*N);
+  const ph={};for(const k of ORDER)ph[k]=new Float64Array(PL[k].length);
+  const covered=new Uint8Array(N*N);
+  const rev=[];for(let i=0;i<N*N;i++)if(state[i]===2)rev.push(i);
+  const placed=[];let W=0,visits=0,over=false;
+  const free=pl=>{for(const x of pl){if(state[x]===1||state[x]>=3||covered[x])return false}return true};
+  function rec(pi,last){
+    if(over)return;
+    if(pi===list.length){
+      for(const c of rev)if(!covered[c])return;
+      W++;
+      for(const [k,ix] of placed){ph[k][ix]++;for(const x of PL[k][ix])hits[x]++}
+      return;
+    }
+    const k=list[pi],arr=PL[k];
+    const start=(pi>0&&list[pi-1]===k)?last+1:0;
+    for(let ix=start;ix<arr.length;ix++){
+      if(++visits>cap){over=true;return}
+      const pl=arr[ix];
+      if(!free(pl))continue;
+      for(const x of pl)covered[x]=1;
+      placed.push([k,ix]);
+      rec(pi+1,ix);
+      placed.pop();
+      for(const x of pl)covered[x]=0;
+    }
   }
+  rec(0,-1);
+  return over?null:{W,hits,ph};
+}
+function finalize(hits,W,n,essv,ph,isExact,t0){
+  samples=n;ess=essv;plcData={ph,W};exact=isExact;blocks=null;
+  const raw=Array.from(hits,h=>W?h/W:0);
+  const G=symGroup();
+  prob=raw.map((_,i)=>G.reduce((a,g)=>a+raw[g[i]],0)/G.length);
+  const unk=[];
+  for(let i=0;i<N*N;i++)if(state[i]===0)unk.push(i);
+  unk.sort((x,y)=>prob[y]-prob[x]);
+  const tol=isExact?1e-9:Math.max(0.015,0.5/Math.sqrt((ess||1)*G.length));
+  const pk=n?unk.filter(i=>prob[i]>0&&prob[i]>=prob[unk[0]]-tol):[];
+  const set=new Set(pk);
+  for(const i of pk)for(const g of G)if(state[g[i]]===0)set.add(g[i]);
+  picks=[...set].sort((x,y)=>prob[y]-prob[x]).slice(0,8);
+  // 只剩 1 個寶藏、且每個可能位置互不重疊 → 把同一個位置的格子合併成一個機率
+  if(isExact&&n&&remTotal()===1){
+    const k=ORDER.find(k=>counts[k]>0);
+    const rows=[];
+    for(let ix=0;ix<PL[k].length;ix++)if(ph[k][ix]>0)rows.push({cells:PL[k][ix],pr:ph[k][ix]/W});
+    const seen=new Set();let okm=rows.length>0;
+    for(const r of rows)for(const x of r.cells){if(seen.has(x))okm=false;seen.add(x)}
+    if(okm){const mx=Math.max(...rows.map(r=>r.pr));for(const r of rows)r.top=r.pr>=mx-1e-9;blocks=rows}
+  }
+  elapsed=performance.now()-t0;
+}
+function compute(){
+  const my=++runId;dirty=false;
+  const t0=performance.now();
+  if(remTotal()<=3){
+    const ex=enumerateExact(3e6);
+    if(ex){
+      running=false;
+      finalize(ex.hits,ex.W,ex.W,ex.W,ex.ph,true,t0);
+      if(blocks)sel.clear();
+      render();return;
+    }
+  }
+  const hits=new Array(N*N).fill(0);let n=0,W=0,W2=0;
+  const ph={};for(const k of ORDER)ph[k]=new Float64Array(PL[k].length);
+  running=true;
   function chunk(){
     if(my!==runId)return;
     const c0=performance.now();
@@ -238,9 +343,11 @@ function compute(){
       if(!r)continue;
       n++;W+=r.w;W2+=r.w*r.w;
       for(let i=0;i<N*N;i++)if(r.cv[i])hits[i]+=r.w;
+      for(const [k,ix] of r.used)ph[k][ix]+=r.w;
     }
     if(performance.now()-t0>=TOTAL_MS)running=false;
-    finish();
+    finalize(hits,W,n,n?W*W/W2:0,ph,false,t0);
+    render();
     if(running)setTimeout(chunk,20);
   }
   chunk();
@@ -251,55 +358,148 @@ function schedule(){
   timer=setTimeout(compute,20);
 }
 
+const DIH=[(r,c)=>[r,c],(r,c)=>[c,N-1-r],(r,c)=>[N-1-r,N-1-c],(r,c)=>[N-1-c,r],(r,c)=>[r,N-1-c],(r,c)=>[N-1-r,c],(r,c)=>[c,r],(r,c)=>[N-1-c,N-1-r]];
+function symGroup(){
+  const key=state.map(v=>v===2?2:(v===1||v>=3)?1:0);
+  const out=[];
+  const axisOK=counts.p2v===counts.p2h&&counts.p3v===counts.p3h;
+  for(let fi=0;fi<DIH.length;fi++){
+    if(!axisOK&&[1,3,6,7].includes(fi))continue;
+    const f=DIH[fi];
+    const g=[];let ok=true;
+    for(let i=0;i<N*N&&ok;i++){const [r2,c2]=f(Math.floor(i/N),i%N);const j=r2*N+c2;g.push(j);if(key[j]!==key[i])ok=false}
+    if(ok)out.push(g);
+  }
+  return out;
+}
+function diagnose(){
+  const unk=state.filter(v=>v===0).length;
+  const sz={p2:2,p2v:2,p2h:2,p3:3,p3v:3,p3h:3,q2:4,q3:9};
+  let need=0;for(const k of ORDER)need+=sz[k]*(counts[k]||0);
+  if(need>unk)return `剩餘寶藏合計 ${need} 格，但只剩 ${unk} 個未知格，放不下。請把下方數量調小。`;
+  for(const k of ORDER)if(counts[k]>0&&!PL[k].some(pl=>pl.every(x=>state[x]===0)))
+    return `「${TYPES[k].name}」目前還有 ${counts[k]} 個，但棋盤上已經沒有任何空位放得下它。請檢查它的數量，如果已經全部找到，請調成 0。`;
+  return '每種寶藏單獨看都放得下，但全部合在一起放不下。請檢查下方數量是不是填多了，或有沒有標錯格子。';
+}
+function placeName(cells){
+  const rs=cells.map(x=>Math.floor(x/N)+1),cs=cells.map(x=>x%N+1);
+  const r0=Math.min(...rs),r1=Math.max(...rs),c0=Math.min(...cs),c1=Math.max(...cs);
+  const rt=r0===r1?`第${r0}列`:`第${r0}～${r1}列`,ct=c0===c1?`第${c0}欄`:`第${c0}～${c1}欄`;
+  return rt+" "+ct;
+}
+function renderPlc(){
+  const el=document.getElementById("plc");
+  const total=ORDER.reduce((a,k)=>a+(counts[k]||0),0);
+  let h="";
+  if(dirty||!samples||total===0||!plcData)h="";
+  else if(total>3)h=`<div class="small">還剩 ${total} 個寶藏，可能的位置太多，請看格子上的機率。剩 3 個以內時，這裡會直接列出每個寶藏可能放在哪裡。</div>`;
+  else{
+    h='<b style="font-size:13px">可能位置（點一下，棋盤會標出來）</b>';
+    for(const k of ORDER){
+      if(!(counts[k]>0))continue;
+      const rows=[];
+      for(let ix=0;ix<PL[k].length;ix++){const pr=plcData.ph[k][ix]/plcData.W;if(pr>0.0005)rows.push([ix,pr])}
+      rows.sort((a,b)=>b[1]-a[1]);
+      h+=`<div class="plt"><i class="dot" style="background:${COL[TYPES[k].base]}"></i>${TYPES[k].name}（剩 ${counts[k]} 個）</div>`;
+      for(const [ix,pr] of rows.slice(0,12))h+=`<button class="pl${hlKey===k+":"+ix?" on":""}" data-hl="${k}:${ix}"><span>${placeName(PL[k][ix])}</span><b>${Math.round(pr*100)}%</b></button>`;
+      if(rows.length>12)h+=`<div class="small">還有 ${rows.length-12} 個機率更低的位置沒有列出。</div>`;
+    }
+  }
+  el.style.display=h?"block":"none";
+  if(el.dataset.h!==h){el.innerHTML=h;el.dataset.h=h}
+}
 function pos(i){return `第${Math.floor(i/N)+1}列第${i%N+1}欄`}
 
 function render(){
   const g=document.getElementById("grid");
   if(!g.dataset.built){
-    let h='<div></div>';
-    for(let c=1;c<=N;c++)h+=`<div class="hd">${c}</div>`;
+    let h='<div style="grid-row:1;grid-column:1"></div>';
+    for(let c=1;c<=N;c++)h+=`<div class="hd" style="grid-row:1;grid-column:${c+1}">${c}</div>`;
     for(let r=0;r<N;r++){
-      h+=`<div class="hd">${r+1}</div>`;
-      for(let c=0;c<N;c++)h+=`<button class="cell" data-i="${r*N+c}"></button>`;
+      h+=`<div class="hd" style="grid-row:${r+2};grid-column:1">${r+1}</div>`;
+      for(let c=0;c<N;c++)h+=`<button class="cell" data-i="${r*N+c}" style="grid-row:${r+2};grid-column:${c+2}"></button>`;
     }
     g.innerHTML=h;g.dataset.built="1";
   }
+  // 合併顯示：只剩 1 個寶藏時，同一個可能位置的格子合成一格
+  bmap=new Map();const hidden=new Set();
+  if(!dirty&&blocks)for(const b of blocks){
+    const rs=b.cells.map(x=>Math.floor(x/N)),cs=b.cells.map(x=>x%N);
+    const a=Math.min(...b.cells);
+    bmap.set(a,{cells:b.cells,pr:b.pr,top:b.top,h:Math.max(...rs)-Math.min(...rs)+1,w:Math.max(...cs)-Math.min(...cs)+1});
+    for(const x of b.cells)if(x!==a)hidden.add(x);
+  }
+  // 選完一個完整寶藏形狀後，其他格子變暗
+  const sv=mode==="group"&&sel.size>0&&!!detect();
   const els=g.querySelectorAll(".cell");
   for(let i=0;i<N*N;i++){
-    const s=state[i];
-    let cls="cell s"+s,style="",txt="";
+    const s=state[i],r=Math.floor(i/N),c=i%N,bk=bmap.get(i);
+    let cls="cell s"+s,style=`grid-row:${r+2};grid-column:${c+2};`,txt="";
+    if(hidden.has(i))cls+=" hid";
     if(s===0){
-      const p=prob[i];
+      const p=bk?bk.pr:prob[i];
       if(samples){
-        style=`background:rgba(224,120,30,${(p*0.85).toFixed(2)})`;
+        if(bk){cls+=" mg";style=`grid-row:${r+2} / span ${bk.h};grid-column:${c+2} / span ${bk.w};aspect-ratio:auto;`}
+        style+=`background:rgba(224,120,30,${(p*0.85).toFixed(2)})`;
         txt=Math.round(p*100)+"%";
-        if(p>=0.995)cls+=" sure";
+        if(dirty)cls+=" stale";
+        else if(p>=1-1e-9)cls+=" sure";
       }
-      if(picks.includes(i))cls+=" top";
+      if(!dirty&&(bk?bk.top:picks.includes(i)))cls+=" top";
     }else if(s===1)txt="✕";
     else if(s===2)txt="💎";
     else txt="✓";
-    if(sel.has(i))cls+=" sel";
+    const isSel=bk?bk.cells.every(x=>sel.has(x)):sel.has(i);
+    if(isSel)cls+=" sel";
+    else if(sv&&!hidden.has(i))cls+=" dim";
+    if(hl.has(i))cls+=" hl";
     const el=els[i];
     if(el.className!==cls)el.className=cls;
-    if(el.style.cssText!==style)el.style.cssText=style;
+    if(el.dataset.st!==style){el.style.cssText=style;el.dataset.st=style}
     if(el.textContent!==txt)el.textContent=txt;
   }
   const sg=document.getElementById("sug");
-  const need=Object.keys(counts).reduce((a,k)=>a+counts[k],0);
-  if(!samples){
-    sg.innerHTML="⚠️ 找不到符合目前資料的擺法。請檢查：數量是否填對、是否有寶藏格被空格或已完成格圍住放不下。";
+  const need=remTotal();
+  if(dirty){
+    sg.innerHTML='盤面已變更，請按「計算機率」更新建議。<br><span class="small">格子上淡色的 % 是上次的結果，僅供參考。</span>';
+  }else if(!samples){
+    sg.innerHTML="⚠️ 找不到符合目前資料的擺法，所以格子沒有顯示機率。<br>"+diagnose();
+  }else if(need===0){
+    sg.innerHTML="🎉 下方數量都是 0，代表寶藏都找齊了，不需要再挖。";
   }else{
-    let t=`<b>建議先挖：</b>`+picks.map(i=>`${pos(i)}（${Math.round(prob[i]*100)}%）`).join("、");
-    const sure=[];
-    for(let i=0;i<N*N;i++)if(state[i]===0&&prob[i]>=0.995)sure.push(i);
-    if(sure.length)t+=`<br><b>一定有寶藏：</b>`+sure.map(pos).join("、");
-    t+=`<br><span class="small">有效模擬 ${samples} 次（等效樣本約 ${Math.round(ess)}，機率誤差約 ±${(50/Math.sqrt(ess||1)).toFixed(1)}%），剩 ${need} 個寶藏未挖完 ${running?`｜精進中 ${(elapsed/1000).toFixed(1)}/10 秒`:'｜計算完成'}</span>`;
+    let t;
+    if(bmap.size){
+      const bl=[...bmap.values()];
+      t=`<b>建議先挖：</b>`+bl.filter(b=>b.top).slice(0,8).map(b=>`${placeName(b.cells)}（${Math.round(b.pr*100)}%）`).join("、");
+      const sureB=bl.filter(b=>b.pr>=1-1e-9);
+      if(sureB.length)t+=`<br><b>一定有寶藏：</b>`+sureB.map(b=>placeName(b.cells)).join("、");
+      t+=`<br><span class="small">合併的格子＝同一個寶藏可能放的位置，% 是整件寶藏在該位置的機率。</span>`;
+    }else{
+      t=`<b>建議先挖：</b>`+picks.map(i=>`${pos(i)}（${Math.round(prob[i]*100)}%）`).join("、");
+      const sure=[];
+      for(let i=0;i<N*N;i++)if(state[i]===0&&prob[i]>=1-1e-9)sure.push(i);
+      if(sure.length)t+=`<br><b>一定有寶藏：</b>`+sure.map(pos).join("、");
+    }
+    t+=exact
+      ?`<br><span class="small">精確計算（列舉全部 ${samples} 種可能擺法），剩 ${need} 個寶藏未挖完</span>`
+      :`<br><span class="small">有效模擬 ${samples} 次（等效樣本約 ${Math.round(ess)}，機率誤差約 ±${(50/Math.sqrt(ess||1)).toFixed(1)}%），剩 ${need} 個寶藏未挖完 ${running?`｜精進中 ${(elapsed/1000).toFixed(1)}/10 秒`:'｜計算完成'}</span>`;
     sg.innerHTML=t;
   }
   document.querySelectorAll(".mode").forEach(b=>b.classList.toggle("on",b.dataset.m===mode));
   for(const k of ORDER)document.getElementById("c_"+k).textContent=counts[k];
   renderBar();
+  updateCalc();
+  renderPlc();
+}
+function updateCalc(){
+  const b=document.getElementById("calc");
+  let t,cls="calcbtn";
+  if(running){t=`計算中… ${(elapsed/1000).toFixed(1)}/${TOTAL_MS/1000} 秒`;cls+=" busy"}
+  else if(dirty){t="▶ 計算機率（盤面已變更）";cls+=" hot"}
+  else if(!samples){t="⚠️ 找不到符合的擺法（看下方說明）";cls+=" bad"}
+  else t="▶ 重新計算";
+  if(b.textContent!==t)b.textContent=t;
+  if(b.className!==cls)b.className=cls;
 }
 
 function build(){
@@ -307,35 +507,54 @@ function build(){
   m.innerHTML=MODES.map(([k,n])=>`<button class="mode" data-m="${k}">${n}</button>`).join("");
   m.onclick=e=>{const b=e.target.closest(".mode");if(b){mode=b.dataset.m;sel.clear();render()}};
   document.getElementById("gbar").onclick=e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.a==="ok")confirmGroup();else if(b.dataset.a==="cancel"){sel.clear();render()}};
-  document.getElementById("undo").onclick=()=>{
-    if(!hist.length)return;
-    const o=JSON.parse(hist.pop());state=o.state;counts=o.counts;gid=o.gid||new Array(N*N).fill(0);gnext=o.gnext||1;sel.clear();save();render();schedule();
+  document.getElementById("calc").onclick=()=>{schedule()};
+  document.getElementById("plc").onclick=e=>{
+    const b=e.target.closest("[data-hl]");if(!b)return;
+    const key=b.dataset.hl;
+    if(hlKey===key){hlKey="";hl=new Set()}
+    else{const [k,ix]=key.split(":");hlKey=key;hl=new Set(PL[k][Number(ix)])}
+    render();
   };
   document.getElementById("shapes").innerHTML=[["p2",1,2,"2格（直/橫）"],["p3",1,3,"3格（直/橫）"],["q2",2,2,"4格（2×2）"],["q3",3,3,"9格（3×3）"]].map(([k,r,c,t])=>`<div class="shp-row"><span class="shp" style="border-color:${COL[k]};background:${COL[k]}33;grid-template-columns:repeat(${c},14px);grid-template-rows:repeat(${r},14px)">${"<i></i>".repeat(r*c)}</span><span>${t}</span></div>`).join("");
   const c=document.getElementById("counts");
-  c.innerHTML=["p2","p3","q2","q3"].map(k=>`<div class="cnt"><span class="nm"><i class="dot" style="background:${COL[k]}"></i>${TYPES[k].name}</span><span class="st"><button data-k="${k}" data-d="-1">−</button><b id="c_${k}"></b><button data-k="${k}" data-d="1">+</button></span></div>`).join("");
+  const stp=k=>`<span class="st"><button data-k="${k}" data-d="-1">−</button><b id="c_${k}"></b><button data-k="${k}" data-d="1">+</button></span>`;
+  const row=k=>`<div class="cnt"><span class="nm"><i class="dot" style="background:${COL[k]}"></i>${TYPES[k].name}</span>${stp(k)}</div>`;
+  const grp=(b,title)=>`<div class="cg"><div class="cgt"><i class="dot" style="background:${COL[b]}"></i>${title}</div><div class="cg3">`+[[b+"v","直行"],[b+"h","橫行"],[b,"直橫都可"]].map(([k,l])=>`<div class="cs"><div class="small">${l}</div>${stp(k)}</div>`).join("")+`</div></div>`;
+  c.innerHTML=grp("p2","2格寶藏")+grp("p3","3格寶藏")+row("q2")+row("q3");
   c.onclick=e=>{
     const b=e.target.closest("button");if(!b)return;
     pushHist();
     const k=b.dataset.k;counts[k]=Math.max(0,counts[k]+Number(b.dataset.d));
-    save();schedule();render();
+    save();touch();render();
   };
   document.getElementById("grid").onclick=e=>{
     const b=e.target.closest(".cell");if(!b)return;
-    const i=Number(b.dataset.i);
+    let i=Number(b.dataset.i);
+    const bk=bmap.get(i);
+    if(bk){
+      if(mode==="group"){
+        const all=bk.cells.every(x=>sel.has(x));
+        for(const x of bk.cells)all?sel.delete(x):sel.add(x);
+        render();return;
+      }
+      // 合併格：依點擊位置判斷點到哪一小格
+      const rc=b.getBoundingClientRect();
+      const dr=Math.min(bk.h-1,Math.max(0,Math.floor((e.clientY-rc.top)/rc.height*bk.h)));
+      const dc=Math.min(bk.w-1,Math.max(0,Math.floor((e.clientX-rc.left)/rc.width*bk.w)));
+      i=(Math.floor(i/N)+dr)*N+(i%N)+dc;
+    }
     if(mode==="group"){
       if(state[i]===1||state[i]>=3)return;
       if(sel.has(i))sel.delete(i);else sel.add(i);
       render();return;
     }
-    if(mode==="empty"&&state[i]>=3)return;
     pushHist();
-    if(mode==="empty")state[i]=state[i]===1?0:1;
+    if(mode==="empty"&&state[i]<3)state[i]=state[i]===1?0:1;
     else clearCell(i);
-    save();render();schedule();
+    save();touch();render();
   };
   document.getElementById("reset").onclick=()=>{
-    if(confirm("確定要全部重設嗎？")){pushHist();sel.clear();defaults();save();schedule();render()}
+    if(confirm("確定要全部重設嗎？")){pushHist();sel.clear();defaults();save();touch();render()}
   };
 }
 load();build();render();schedule();
