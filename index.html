@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>挖地尋寶 推算助手</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#faf7f0;--fg:#2b2418;--card:#fff;--line:#d9cfb8;--muted:#7a6d55;--empty:#cfcabd;--treasure:#f2c230;--done:#7bb67e;--accent:#b8651b}
+:root:not([data-theme="light"]){}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#1b1812;--fg:#f1e8d4;--card:#26221a;--line:#4a4130;--muted:#a89a7c;--empty:#3a362d;--treasure:#c9981a;--done:#3f7a43;--accent:#e08a3a}}
+:root[data-theme="dark"]{--bg:#1b1812;--fg:#f1e8d4;--card:#26221a;--line:#4a4130;--muted:#a89a7c;--empty:#3a362d;--treasure:#c9981a;--done:#3f7a43;--accent:#e08a3a}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;overflow-x:hidden;background:var(--bg);color:var(--fg);font-family:-apple-system,"PingFang TC","Noto Sans TC",sans-serif;padding:12px;max-width:520px;margin:0 auto}
+h1{font-size:18px;margin:4px 0 8px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;margin-bottom:10px}
+.modes{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+button{font:inherit;color:inherit}
+.mode{padding:8px 0;border-radius:8px;border:2px solid var(--line);background:var(--bg);font-size:12px}
+.mode.on{border-color:var(--accent);font-weight:700}
+.grid{display:grid;grid-template-columns:16px repeat(8,minmax(0,1fr));gap:2px}
+.hd{font-size:11px;color:var(--muted);text-align:center;align-self:center}
+.cell{min-width:0;overflow:hidden;aspect-ratio:1;border:1px solid var(--line);border-radius:6px;font-size:11px;font-weight:700;padding:0;display:flex;align-items:center;justify-content:center;background:var(--card);position:relative}
+.cell.s1{background:var(--empty);color:var(--muted)}
+.cell.s2{background:var(--treasure);font-size:16px}
+.cell.s3{background:var(--done);font-size:14px}
+.cell.top::after{content:"★";position:absolute;top:0;right:2px;font-size:9px;color:var(--fg)}
+.cell.sel{box-shadow:inset 0 0 0 3px #3b82f6}
+.gbtn{width:100%;padding:10px;border-radius:8px;border:2px solid #3b82f6;background:var(--bg);font-weight:700;margin-top:6px}
+.gbtn.sec{border-color:var(--line);font-weight:400}
+.gbtn:disabled{opacity:.4}
+.cell.top{outline:3px solid var(--accent);outline-offset:-1px;z-index:1}
+.cell.sure{box-shadow:inset 0 0 0 2px #2e9e3e}
+.counts{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.cnt{display:flex;align-items:center;justify-content:space-between;border:1px solid var(--line);border-radius:8px;padding:4px 8px;font-size:13px}
+.cnt b{min-width:20px;text-align:center;font-size:15px}
+.cnt button{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--bg);font-size:16px}
+.sug{font-size:14px;line-height:1.6}
+.small{font-size:12px;color:var(--muted)}
+.reset{margin-top:6px;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);width:100%}
+</style>
+</head>
+<body>
+<h1>⛏ 挖地尋寶 推算助手</h1>
+
+<div class="card">
+  <div class="small" style="margin-bottom:6px">先選模式，再點格子。格子上的 % 是有寶藏的機率。</div>
+  <div class="modes" id="modes"></div>
+  <button class="reset" id="undo">↶ 復原上一步</button>
+</div>
+
+<div class="card"><div class="grid" id="grid"></div></div>
+
+<div class="card" id="gbar" style="display:none"></div>
+<div class="card sug" id="sug"></div>
+
+<div class="card">
+  <div style="font-size:13px;margin-bottom:6px"><b>還沒挖完的寶藏數量</b></div>
+  <div class="counts" id="counts"></div>
+  <div class="small" style="margin-top:6px">用「整件寶藏」框選確認後會自動 −1，也可以用 +/− 手動調整。</div>
+</div>
+
+<div class="card small">
+  🟢 = 已確定的整件寶藏　灰 = 空格<br>框選整件寶藏的所有格子，數量會自動 −1。<br>
+  橘色底 = 機率高，★ 外框 = 建議先挖，綠框 = 一定有寶藏。<br>
+  機率是隨機模擬估算，僅供參考。
+  <button class="reset" id="reset">全部重設</button>
+</div>
+
+<script>
+const N=8;
+const MODES=[["empty","空格"],["group","整件寶藏"],["done","單格完成"],["clear","清除"]];
+const TYPES={p2:{name:"直/橫 2格",shapes:[[1,2],[2,1]]},p3:{name:"直/橫 3格",shapes:[[1,3],[3,1]]},q2:{name:"2×2",shapes:[[2,2]]},q3:{name:"3×3",shapes:[[3,3]]}};
+const ORDER=["q3","q2","p3","p2"];
+const DEFAULT_COUNTS={p2:3,p3:5,q2:2,q3:1};
+// 預設：截圖中已知 3 個寶藏格（列,欄 從 1 起算）
+const DEFAULT_TREASURE=[];
+
+// placements
+const PL={},BYCELL={};
+for(const k of ORDER){
+  PL[k]=[];BYCELL[k]=Array.from({length:N*N},()=>[]);
+  for(const [h,w] of TYPES[k].shapes){
+    for(let r=0;r<=N-h;r++)for(let c=0;c<=N-w;c++){
+      const cells=[];
+      for(let i=0;i<h;i++)for(let j=0;j<w;j++)cells.push((r+i)*N+c+j);
+      PL[k].push(cells);
+      for(const x of cells)BYCELL[k][x].push(cells);
+    }
+  }
+}
+
+let state=new Array(N*N).fill(0); // 0 unknown 1 empty 2 treasure 3 done
+let counts={...DEFAULT_COUNTS};
+let mode="empty";
+let prob=new Array(N*N).fill(0),samples=0,picks=[];
+let timer=null,ess=0;
+let sel=new Set(),hist=[];
+function pushHist(){hist.push(JSON.stringify({state,counts}));if(hist.length>60)hist.shift()}
+function detect(){
+  if(!sel.size)return null;
+  const rs=[...sel].map(i=>Math.floor(i/N)),cs=[...sel].map(i=>i%N);
+  const h=Math.max(...rs)-Math.min(...rs)+1,w=Math.max(...cs)-Math.min(...cs)+1;
+  if(sel.size!==h*w)return null;
+  const a=Math.min(h,w),b=Math.max(h,w);
+  if(a===1&&b===2)return 'p2';
+  if(a===1&&b===3)return 'p3';
+  if(a===2&&b===2)return 'q2';
+  if(a===3&&b===3)return 'q3';
+  return null;
+}
+function confirmGroup(){
+  const t=detect();if(!t||counts[t]<=0)return;
+  pushHist();
+  for(const i of sel)state[i]=3;
+  counts[t]=Math.max(0,counts[t]-1);
+  sel.clear();save();render();schedule();
+}
+function renderBar(){
+  const bar=document.getElementById('gbar');
+  bar.style.display=mode==='group'?'block':'none';
+  document.getElementById('undo').disabled=!hist.length;
+  if(mode!=='group')return;
+  const t=detect();
+  let h='';
+  if(!sel.size)h='<div class="small">點選同一個寶藏的所有格子（要是長方形），再按確認。確認後這些格子變成「已完成」，該類數量自動 −1。</div>';
+  else if(t){
+    const c=counts[t];
+    h=`<div style="font-size:14px">已選 ${sel.size} 格 → <b>${TYPES[t].name}</b></div><button class="gbtn" data-a="ok" ${c<=0?'disabled':''}>確認（${TYPES[t].name}：${c} → ${Math.max(0,c-1)}）</button>`+(c<=0?'<div class="small">此類型數量已經是 0，請先把數量調整好。</div>':'');
+  }else h=`<div style="font-size:14px">已選 ${sel.size} 格，形狀不符</div><div class="small">需要是 1×2、1×3、2×2、3×3 的長方形。</div>`;
+  if(sel.size)h+='<button class="gbtn sec" data-a="cancel">取消選取</button>';
+  bar.innerHTML=h;
+}
+
+function defaults(){
+  state=new Array(N*N).fill(0);
+  for(const [r,c] of DEFAULT_TREASURE)state[(r-1)*N+c-1]=2;
+  counts={...DEFAULT_COUNTS};
+}
+function save(){try{localStorage.setItem("digHelper2",JSON.stringify({state,counts}))}catch(e){}}
+function load(){
+  try{
+    const s=localStorage.getItem("digHelper2");
+    if(s){const o=JSON.parse(s);if(o.state&&o.state.length===N*N){state=o.state.map(x=>x===2?0:x);counts={...DEFAULT_COUNTS,...o.counts};return}}
+  }catch(e){}
+  defaults();
+}
+
+function rnd(n){return Math.floor(Math.random()*n)}
+function sampleOnce(){
+  const covered=new Uint8Array(N*N);
+  const rem={...counts};let w=1;
+  const ok=pl=>{for(const x of pl){if(state[x]===1||state[x]===3||covered[x])return false}return true};
+  const rev=[];
+  for(let i=0;i<N*N;i++)if(state[i]===2)rev.push(i);
+  for(const c of rev){
+    if(covered[c])continue;
+    const opts=[];
+    for(const k of ORDER){
+      if(rem[k]<=0)continue;
+      for(const pl of BYCELL[k][c])if(ok(pl))opts.push([k,pl]);
+    }
+    if(!opts.length)return null;
+    w*=opts.length;
+    const [k,pl]=opts[rnd(opts.length)];
+    rem[k]--;for(const x of pl)covered[x]=1;
+  }
+  for(const k of ORDER){
+    let last=-1;
+    while(rem[k]>0){
+      const opts=[];
+      for(let idx=last+1;idx<PL[k].length;idx++)if(ok(PL[k][idx]))opts.push(idx);
+      if(!opts.length)return null;
+      w*=opts.length;
+      last=opts[rnd(opts.length)];
+      rem[k]--;for(const x of PL[k][last])covered[x]=1;
+    }
+  }
+  return {cv:covered,w};
+}
+
+const TOTAL_MS=10000;
+let runId=0,elapsed=0,running=false;
+function compute(){
+  const my=++runId;
+  const hits=new Array(N*N).fill(0);let n=0,W=0,W2=0;
+  const t0=performance.now();
+  running=true;
+  function finish(){
+    samples=n;ess=n?W*W/W2:0;
+    prob=hits.map(h=>W?h/W:0);
+    const unk=[];
+    for(let i=0;i<N*N;i++)if(state[i]===0)unk.push(i);
+    unk.sort((x,y)=>prob[y]-prob[x]);
+    const tol=Math.max(0.015,0.5/Math.sqrt(ess||1));
+    picks=n?unk.filter(i=>prob[i]>0&&prob[i]>=prob[unk[0]]-tol).slice(0,6):[];
+    elapsed=performance.now()-t0;
+    render();
+  }
+  function chunk(){
+    if(my!==runId)return;
+    const c0=performance.now();
+    while(performance.now()-c0<200){
+      const r=sampleOnce();
+      if(!r)continue;
+      n++;W+=r.w;W2+=r.w*r.w;
+      for(let i=0;i<N*N;i++)if(r.cv[i])hits[i]+=r.w;
+    }
+    if(performance.now()-t0>=TOTAL_MS)running=false;
+    finish();
+    if(running)setTimeout(chunk,0);
+  }
+  chunk();
+}
+function schedule(){
+  clearTimeout(timer);
+  runId++;
+  timer=setTimeout(compute,20);
+}
+
+function pos(i){return `第${Math.floor(i/N)+1}列第${i%N+1}欄`}
+
+function render(){
+  const g=document.getElementById("grid");
+  if(!g.dataset.built){
+    let h='<div></div>';
+    for(let c=1;c<=N;c++)h+=`<div class="hd">${c}</div>`;
+    for(let r=0;r<N;r++){
+      h+=`<div class="hd">${r+1}</div>`;
+      for(let c=0;c<N;c++)h+=`<button class="cell" data-i="${r*N+c}"></button>`;
+    }
+    g.innerHTML=h;g.dataset.built="1";
+  }
+  const els=g.querySelectorAll(".cell");
+  for(let i=0;i<N*N;i++){
+    const s=state[i];
+    let cls="cell s"+s,style="",txt="";
+    if(s===0){
+      const p=prob[i];
+      if(samples){
+        style=`background:rgba(224,120,30,${(p*0.85).toFixed(2)})`;
+        txt=Math.round(p*100)+"%";
+        if(p>=0.995)cls+=" sure";
+      }
+      if(picks.includes(i))cls+=" top";
+    }else if(s===1)txt="✕";
+    else if(s===2)txt="💎";
+    else txt="✓";
+    if(sel.has(i))cls+=" sel";
+    const el=els[i];
+    if(el.className!==cls)el.className=cls;
+    if(el.style.cssText!==style)el.style.cssText=style;
+    if(el.textContent!==txt)el.textContent=txt;
+  }
+  const sg=document.getElementById("sug");
+  const need=Object.keys(counts).reduce((a,k)=>a+counts[k],0);
+  if(!samples){
+    sg.innerHTML="⚠️ 找不到符合目前資料的擺法。請檢查：數量是否填對、是否有寶藏格被空格或已完成格圍住放不下。";
+  }else{
+    let t=`<b>建議先挖：</b>`+picks.map(i=>`${pos(i)}（${Math.round(prob[i]*100)}%）`).join("、");
+    const sure=[];
+    for(let i=0;i<N*N;i++)if(state[i]===0&&prob[i]>=0.995)sure.push(i);
+    if(sure.length)t+=`<br><b>一定有寶藏：</b>`+sure.map(pos).join("、");
+    t+=`<br><span class="small">有效模擬 ${samples} 次（等效樣本約 ${Math.round(ess)}，機率誤差約 ±${(50/Math.sqrt(ess||1)).toFixed(1)}%），剩 ${need} 個寶藏未挖完 ${running?`｜精進中 ${(elapsed/1000).toFixed(1)}/10 秒`:'｜計算完成'}</span>`;
+    sg.innerHTML=t;
+  }
+  document.querySelectorAll(".mode").forEach(b=>b.classList.toggle("on",b.dataset.m===mode));
+  for(const k of ORDER)document.getElementById("c_"+k).textContent=counts[k];
+  renderBar();
+}
+
+function build(){
+  const m=document.getElementById("modes");
+  m.innerHTML=MODES.map(([k,n])=>`<button class="mode" data-m="${k}">${n}</button>`).join("");
+  m.onclick=e=>{const b=e.target.closest(".mode");if(b){mode=b.dataset.m;sel.clear();render()}};
+  document.getElementById("gbar").onclick=e=>{const b=e.target.closest("button");if(!b)return;if(b.dataset.a==="ok")confirmGroup();else if(b.dataset.a==="cancel"){sel.clear();render()}};
+  document.getElementById("undo").onclick=()=>{
+    if(!hist.length)return;
+    const o=JSON.parse(hist.pop());state=o.state;counts=o.counts;sel.clear();save();render();schedule();
+  };
+  const c=document.getElementById("counts");
+  c.innerHTML=ORDER.map(k=>`<div class="cnt"><span>${TYPES[k].name}</span><span><button data-k="${k}" data-d="-1">−</button> <b id="c_${k}"></b> <button data-k="${k}" data-d="1">+</button></span></div>`).join("");
+  c.onclick=e=>{
+    const b=e.target.closest("button");if(!b)return;
+    pushHist();
+    const k=b.dataset.k;counts[k]=Math.max(0,counts[k]+Number(b.dataset.d));
+    save();schedule();render();
+  };
+  document.getElementById("grid").onclick=e=>{
+    const b=e.target.closest(".cell");if(!b)return;
+    const i=Number(b.dataset.i);
+    if(mode==="group"){
+      if(state[i]===1||state[i]===3)return;
+      if(sel.has(i))sel.delete(i);else sel.add(i);
+      render();return;
+    }
+    pushHist();
+    state[i]=({empty:1,done:3,clear:0})[mode];
+    save();render();schedule();
+  };
+  document.getElementById("reset").onclick=()=>{
+    if(confirm("確定要全部重設嗎？")){pushHist();sel.clear();defaults();save();schedule();render()}
+  };
+}
+load();build();render();schedule();
+</script>
+</body>
+</html>
