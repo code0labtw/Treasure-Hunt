@@ -178,9 +178,9 @@ let state=new Array(N*N).fill(0); // 0 unknown 1 empty 2 treasure 3 done
 let counts={...DEFAULT_COUNTS};
 let mode="empty";
 let prob=new Array(N*N).fill(0),samples=0,picks=[];
-let timer=null,ess=0,dirty=false,plcData=null,hl=new Set(),hlKey="";
+let timer=null,dirty=false,plcData=null,hl=new Set(),hlKey="";
 function touch(){
-  clearTimeout(timer);runId++;running=false;dirty=true;hl=new Set();hlKey="";
+  clearTimeout(timer);runId++;if(running&&worker){try{worker.terminate()}catch(e){}worker=null}running=false;dirty=true;hl=new Set();hlKey="";
 }
 let sel=new Set(),hist=[];
 let gid=new Array(N*N).fill(0),gnext=1,gbk={};
@@ -264,91 +264,159 @@ function load(){
   defaults();
 }
 
-function rnd(n){return Math.floor(Math.random()*n)}
-function sampleOnce(){
-  const covered=new Uint8Array(N*N);
-  const rem={...counts};let w=1;const used=[];
-  const ok=pl=>{for(const x of pl){if(state[x]===1||state[x]>=3||covered[x])return false}return true};
-  const rev=[];
-  for(let i=0;i<N*N;i++)if(state[i]===2)rev.push(i);
-  for(const c of rev){
-    if(covered[c])continue;
-    const opts=[];
-    for(const k of ORDER){
-      if(rem[k]<=0)continue;
-      for(const pl of BYCELL[k][c])if(ok(pl))opts.push([k,pl]);
-    }
-    if(!opts.length)return null;
-    w*=opts.length;
-    const [k,pl]=opts[rnd(opts.length)];
-    rem[k]--;for(const x of pl)covered[x]=1;
+// 精確計算：逐格掃描的動態規劃（每個「邊界狀態」配一條剩餘數量向量），不用抽樣
+function solveDP(){
+  const NN=N*N;
+  const emptyPh=()=>{const o={};for(const k of ORDER)o[k]=new Float64Array(PL[k].length);return o};
+  const ks=ORDER.filter(k=>(counts[k]||0)>0);
+  const nk=ks.length;
+  if(!nk)return {W:1,hits:new Float64Array(NN),ph:emptyPh()};
+  const mult=[],radix=[];let CM=1;
+  for(const k of ks){mult.push(CM);radix.push(counts[k]+1);CM*=counts[k]+1}
+  if(CM>=65536)return null;
+  const size=ks.map(k=>PL[k][0].length);
+  const blocked=i=>state[i]===1||state[i]>=3;
+  const suf=new Int32Array(NN+2);for(let i=NN-1;i>=0;i--)suf[i]=suf[i+1]+(blocked(i)?0:1);
+  const anchors=Array.from({length:NN},()=>[]);
+  const ancCnt=ks.map(()=>new Int32Array(NN+2));
+  ks.forEach((k,q)=>PL[k].forEach((pl,ix)=>{
+    for(const x of pl)if(blocked(x))return;
+    const a=pl[0];let mask=0;for(const x of pl)mask|=1<<(x-a);
+    anchors[a].push({q,k,ix,mask,m:mult[q]});
+    ancCnt[q][a]++;
+  }));
+  for(let q=0;q<nk;q++)for(let i=NN-1;i>=0;i--)ancCnt[q][i]+=ancCnt[q][i+1];
+  const need=new Int32Array(CM),dig=[],vc=[];
+  for(let q=0;q<nk;q++)dig.push(new Uint8Array(CM));
+  for(let code=0;code<CM;code++){let n=0;for(let q=0;q<nk;q++){const d=Math.floor(code/mult[q])%radix[q];dig[q][code]=d;n+=d*size[q]}need[code]=n}
+  for(let q=0;q<nk;q++){const l=[];for(let c=0;c<CM;c++)if(dig[q][c]>0)l.push(c);vc.push(Int32Array.from(l))}
+  const ok=new Uint8Array((NN+1)*CM);
+  for(let i=0;i<=NN;i++)for(let code=0;code<CM;code++){
+    let good=need[code]<=suf[i];
+    for(let q=0;good&&q<nk;q++)if(dig[q][code]>ancCnt[q][i])good=false;
+    ok[i*CM+code]=good?1:0;
   }
-  for(const k of ORDER){
-    let last=-1;
-    while(rem[k]>0){
-      const opts=[];
-      for(let idx=last+1;idx<PL[k].length;idx++)if(ok(PL[k][idx]))opts.push(idx);
-      if(!opts.length)return null;
-      w*=opts.length;
-      last=opts[rnd(opts.length)];
-      used.push([k,last]);
-      rem[k]--;for(const x of PL[k][last])covered[x]=1;
+  const pcT=new Uint8Array(1<<19);for(let x=1;x<(1<<19);x++)pcT[x]=pcT[x>>1]+(x&1);
+  const code0=ks.reduce((a,k,q)=>a+counts[k]*mult[q],0);
+  if(!ok[code0])return {W:0,hits:new Float64Array(NN),ph:emptyPh()};
+  const pidx=new Int32Array(1<<19).fill(-1);
+  const bufs=[new Float64Array(CM),new Float64Array(CM),new Float64Array(CM)];
+  const getBuf=(slot,sz)=>{if(bufs[slot].length<sz)bufs[slot]=new Float64Array(Math.ceil(sz*1.25));return bufs[slot]};
+  let tmpC=new Uint16Array(1<<16),tmpV=new Float64Array(1<<16);
+  // 從第 i 層走到第 i+1 層
+  function step(i,P,D,alive,outSlot){
+    const an=anchors[i],na=an.length,rev=state[i]===2;
+    const nP=[];
+    for(let t=0;t<alive.length;t++){
+      const p=P[alive[t]];
+      if(p&1){const np=p>>>1;if(pidx[np]<0){pidx[np]=nP.length;nP.push(np)}continue}
+      if(!rev){const np=p>>>1;if(pidx[np]<0){pidx[np]=nP.length;nP.push(np)}}
+      for(let a=0;a<na;a++)if((p&an[a].mask)===0){const np=(p|an[a].mask)>>>1;if(pidx[np]<0){pidx[np]=nP.length;nP.push(np)}}
+    }
+    const nn=nP.length,need_=nn*CM;
+    const D2=getBuf(outSlot,need_);D2.fill(0,0,need_);
+    for(let t=0;t<alive.length;t++){
+      const r=alive[t],base=r*CM,p=P[r];
+      if(p&1||!rev){
+        const nb=pidx[p>>>1]*CM;
+        for(let c=0;c<CM;c++)D2[nb+c]+=D[base+c];
+      }
+      if(p&1)continue;
+      for(let a=0;a<na;a++){
+        const A=an[a];
+        if(p&A.mask)continue;
+        const nb=pidx[(p|A.mask)>>>1]*CM-A.m,l=vc[A.q];
+        for(let j=0;j<l.length;j++){const c=l[j];D2[nb+c]+=D[base+c]}
+      }
+    }
+    const okb=(i+1)*CM,sn=suf[i+1];
+    if(tmpC.length<need_){tmpC=new Uint16Array(need_);tmpV=new Float64Array(need_)}
+    const rowStart=[0],keepP=[],aliveN=[];let cnt=0;
+    for(let r=0;r<nn;r++){
+      const np=nP[r],lim=sn-pcT[np],base=r*CM;let any=false;
+      for(let c=0;c<CM;c++){
+        const v=D2[base+c];
+        if(v!==0){
+          if(ok[okb+c]===1&&need[c]<=lim){tmpC[cnt]=c;tmpV[cnt]=v;cnt++;any=true}
+          else D2[base+c]=0;
+        }
+      }
+      if(any){keepP.push(np);rowStart.push(cnt);aliveN.push(r)}
+    }
+    for(let r=0;r<nn;r++)pidx[nP[r]]=-1;
+    return {P:Int32Array.from(nP),D:D2,alive:Int32Array.from(aliveN),
+      comp:{sp:Int32Array.from(keepP),rs:Int32Array.from(rowStart),sc:tmpC.slice(0,cnt),sv:tmpV.slice(0,cnt)}};
+  }
+  // 正推：偶數層保存，奇數層倒推時再重算（省記憶體）
+  const ST=new Array(NN+1);
+  ST[0]={sp:Int32Array.of(0),rs:Int32Array.of(0,1),sc:Uint16Array.of(code0),sv:Float64Array.of(1)};
+  {
+    let P=Int32Array.of(0),alive=Int32Array.of(0),slot=0;
+    let D=getBuf(0,CM);D.fill(0,0,CM);D[code0]=1;
+    for(let i=0;i<NN;i++){
+      const r=step(i,P,D,alive,1-slot);
+      slot=1-slot;P=r.P;D=r.D;alive=r.alive;
+      if((i+1)%2===0)ST[i+1]=r.comp;
+      if(!alive.length)return {W:0,hits:new Float64Array(NN),ph:emptyPh()};
     }
   }
-  return {cv:covered,w,used};
+  const ph=emptyPh();
+  const last=ST[NN];
+  if(!last||last.sc.length!==1||last.sc[0]!==0)return {W:0,hits:new Float64Array(NN),ph};
+  // 倒推
+  let Bn=Float64Array.of(1),nextP=last.sp;
+  for(let i=NN-1;i>=0;i--){
+    let cur=ST[i];
+    if(!cur){
+      const pv=ST[i-1],n=pv.sp.length;
+      const Dd=getBuf(2,n*CM);Dd.fill(0,0,n*CM);
+      for(let r=0;r<n;r++)for(let s=pv.rs[r];s<pv.rs[r+1];s++)Dd[r*CM+pv.sc[s]]=pv.sv[s];
+      const al=new Int32Array(n);for(let r=0;r<n;r++)al[r]=r;
+      cur=step(i-1,pv.sp,Dd,al,0).comp;
+    }
+    for(let r=0;r<nextP.length;r++)pidx[nextP[r]]=r;
+    const P_=cur.sp,R_=cur.rs,C_=cur.sc,V_=cur.sv,an=anchors[i],na=an.length,rev=state[i]===2;
+    const Bc=new Float64Array(P_.length*CM);
+    for(let r=0;r<P_.length;r++){
+      const p=P_[r],base=r*CM;
+      const r0=(p&1||!rev)?pidx[p>>>1]:-1;
+      const b0=r0>=0?r0*CM:-1;
+      for(let s=R_[r];s<R_[r+1];s++){
+        const c=C_[s],F=V_[s];
+        let b=b0>=0?Bn[b0+c]:0;
+        if(!(p&1)){
+          for(let a=0;a<na;a++){
+            const A=an[a];
+            if((p&A.mask)!==0||dig[A.q][c]===0)continue;
+            const nr=pidx[(p|A.mask)>>>1];if(nr<0)continue;
+            const bb=Bn[nr*CM+c-A.m];
+            if(bb!==0){b+=bb;ph[A.k][A.ix]+=F*bb}
+          }
+        }
+        Bc[base+c]=b;
+      }
+    }
+    for(let r=0;r<nextP.length;r++)pidx[nextP[r]]=-1;
+    Bn=Bc;nextP=P_;ST[i+1]=null;
+  }
+  const Z=Bn[code0];
+  const hits=new Float64Array(NN);
+  for(const k of ks)PL[k].forEach((pl,ix)=>{const v=ph[k][ix];if(v)for(const x of pl)hits[x]+=v});
+  return {W:Z,hits,ph};
 }
 
-const TOTAL_MS=10000;
-let runId=0,elapsed=0,running=false,exact=false,blocks=null,bmap=new Map();
+let runId=0,running=false,blocks=null,bmap=new Map(),worker=null,workerBad=false;
 function remTotal(){return ORDER.reduce((a,k)=>a+(counts[k]||0),0)}
-// 剩 3 個以內：把所有擺法逐一列舉（精確，不用抽樣）
-function enumerateExact(cap){
-  const list=[];for(const k of ORDER)for(let t=0;t<(counts[k]||0);t++)list.push(k);
-  const hits=new Float64Array(N*N);
-  const ph={};for(const k of ORDER)ph[k]=new Float64Array(PL[k].length);
-  const covered=new Uint8Array(N*N);
-  const rev=[];for(let i=0;i<N*N;i++)if(state[i]===2)rev.push(i);
-  const placed=[];let W=0,visits=0,over=false;
-  const free=pl=>{for(const x of pl){if(state[x]===1||state[x]>=3||covered[x])return false}return true};
-  function rec(pi,last){
-    if(over)return;
-    if(pi===list.length){
-      for(const c of rev)if(!covered[c])return;
-      W++;
-      for(const [k,ix] of placed){ph[k][ix]++;for(const x of PL[k][ix])hits[x]++}
-      return;
-    }
-    const k=list[pi],arr=PL[k];
-    const start=(pi>0&&list[pi-1]===k)?last+1:0;
-    for(let ix=start;ix<arr.length;ix++){
-      if(++visits>cap){over=true;return}
-      const pl=arr[ix];
-      if(!free(pl))continue;
-      for(const x of pl)covered[x]=1;
-      placed.push([k,ix]);
-      rec(pi+1,ix);
-      placed.pop();
-      for(const x of pl)covered[x]=0;
-    }
-  }
-  rec(0,-1);
-  return over?null:{W,hits,ph};
-}
-function finalize(hits,W,n,essv,ph,isExact,t0){
-  samples=n;ess=essv;plcData={ph,W};exact=isExact;blocks=null;
-  const raw=Array.from(hits,h=>W?h/W:0);
-  const G=symGroup();
-  prob=raw.map((_,i)=>G.reduce((a,g)=>a+raw[g[i]],0)/G.length);
+function finalize(hits,W,ph){
+  samples=W;plcData={ph,W};blocks=null;
+  prob=Array.from(hits,h=>W?h/W:0);
   const unk=[];
   for(let i=0;i<N*N;i++)if(state[i]===0)unk.push(i);
   unk.sort((x,y)=>prob[y]-prob[x]);
-  const tol=isExact?1e-9:Math.max(0.015,0.5/Math.sqrt((ess||1)*G.length));
-  const pk=n?unk.filter(i=>prob[i]>0&&prob[i]>=prob[unk[0]]-tol):[];
-  const set=new Set(pk);
-  for(const i of pk)for(const g of G)if(state[g[i]]===0)set.add(g[i]);
-  picks=[...set].sort((x,y)=>prob[y]-prob[x]).slice(0,8);
+  const top=W&&unk.length?prob[unk[0]]:0;
+  picks=W?unk.filter(i=>prob[i]>0&&prob[i]>=top-1e-9).slice(0,8):[];
   // 只剩 1 個寶藏、且每個可能位置互不重疊 → 把同一個位置的格子合併成一個機率
-  if(isExact&&n&&remTotal()===1){
+  if(W&&remTotal()===1){
     const k=ORDER.find(k=>counts[k]>0);
     const rows=[];
     for(let ix=0;ix<PL[k].length;ix++)if(ph[k][ix]>0)rows.push({cells:PL[k][ix],pr:ph[k][ix]/W});
@@ -356,39 +424,32 @@ function finalize(hits,W,n,essv,ph,isExact,t0){
     for(const r of rows)for(const x of r.cells){if(seen.has(x))okm=false;seen.add(x)}
     if(okm){const mx=Math.max(...rows.map(r=>r.pr));for(const r of rows)r.top=r.pr>=mx-1e-9;blocks=rows}
   }
-  elapsed=performance.now()-t0;
+}
+function getWorker(){
+  if(worker||workerBad||typeof Worker==="undefined")return worker;
+  try{
+    const src="var N,ORDER,PL,state,counts;"+solveDP.toString()+";onmessage=function(e){var d=e.data;N=d.N;ORDER=d.ORDER;PL=d.PL;state=d.state;counts=d.counts;var r=null;try{r=solveDP()}catch(err){}postMessage({id:d.id,r:r})}";
+    worker=new Worker(URL.createObjectURL(new Blob([src],{type:"text/javascript"})));
+  }catch(e){workerBad=true;worker=null}
+  return worker;
 }
 function compute(){
-  const my=++runId;dirty=false;
-  const t0=performance.now();
-  if(remTotal()<=3){
-    const ex=enumerateExact(3e6);
-    if(ex){
-      running=false;
-      finalize(ex.hits,ex.W,ex.W,ex.W,ex.ph,true,t0);
-      if(blocks)sel.clear();
-      render();return;
-    }
-  }
-  const hits=new Array(N*N).fill(0);let n=0,W=0,W2=0;
-  const ph={};for(const k of ORDER)ph[k]=new Float64Array(PL[k].length);
-  running=true;
-  function chunk(){
+  const my=++runId;dirty=false;running=true;
+  const done=r=>{
     if(my!==runId)return;
-    const c0=performance.now();
-    while(performance.now()-c0<60){
-      const r=sampleOnce();
-      if(!r)continue;
-      n++;W+=r.w;W2+=r.w*r.w;
-      for(let i=0;i<N*N;i++)if(r.cv[i])hits[i]+=r.w;
-      for(const [k,ix] of r.used)ph[k][ix]+=r.w;
-    }
-    if(performance.now()-t0>=TOTAL_MS)running=false;
-    finalize(hits,W,n,n?W*W/W2:0,ph,false,t0);
+    running=false;
+    if(r&&r.W>0){finalize(r.hits,r.W,r.ph);if(blocks)sel.clear()}
+    else{samples=0;plcData=null;blocks=null;picks=[];prob=new Array(N*N).fill(0)}
     render();
-    if(running)setTimeout(chunk,20);
-  }
-  chunk();
+  };
+  const syncRun=()=>setTimeout(()=>{let r=null;try{r=solveDP()}catch(e){}done(r)},30);
+  render();
+  const w=getWorker();
+  if(w){
+    w.onmessage=e=>{if(e.data.id===my)done(e.data.r)};
+    w.onerror=ev=>{if(ev&&ev.preventDefault)ev.preventDefault();workerBad=true;try{w.terminate()}catch(_){}worker=null;syncRun()};
+    w.postMessage({id:my,N,ORDER,PL,state,counts});
+  }else syncRun();
 }
 function schedule(){
   clearTimeout(timer);
@@ -396,28 +457,14 @@ function schedule(){
   timer=setTimeout(compute,20);
 }
 
-const DIH=[(r,c)=>[r,c],(r,c)=>[c,N-1-r],(r,c)=>[N-1-r,N-1-c],(r,c)=>[N-1-c,r],(r,c)=>[r,N-1-c],(r,c)=>[N-1-r,c],(r,c)=>[c,r],(r,c)=>[N-1-c,N-1-r]];
-function symGroup(){
-  const key=state.map(v=>v===2?2:(v===1||v>=3)?1:0);
-  const out=[];
-  const axisOK=counts.p2v===counts.p2h&&counts.p3v===counts.p3h;
-  for(let fi=0;fi<DIH.length;fi++){
-    if(!axisOK&&[1,3,6,7].includes(fi))continue;
-    const f=DIH[fi];
-    const g=[];let ok=true;
-    for(let i=0;i<N*N&&ok;i++){const [r2,c2]=f(Math.floor(i/N),i%N);const j=r2*N+c2;g.push(j);if(key[j]!==key[i])ok=false}
-    if(ok)out.push(g);
-  }
-  return out;
-}
 function diagnose(){
   const unk=state.filter(v=>v===0).length;
   const sz={p2:2,p2v:2,p2h:2,p3:3,p3v:3,p3h:3,q2:4,q3:9};
   let need=0;for(const k of ORDER)need+=sz[k]*(counts[k]||0);
-  if(need>unk)return `剩餘寶藏合計 ${need} 格，但只剩 ${unk} 個未知格，放不下。請把下方數量調小。`;
+  if(need>unk)return `剩餘寶藏合計 ${need} 格，但只剩 ${unk} 個未知格，放不下。請檢查有沒有標錯格子。`;
   for(const k of ORDER)if(counts[k]>0&&!PL[k].some(pl=>pl.every(x=>state[x]===0)))
-    return `「${TYPES[k].name}」目前還有 ${counts[k]} 個，但棋盤上已經沒有任何空位放得下它。請檢查它的數量，如果已經全部找到，請調成 0。`;
-  return '每種寶藏單獨看都放得下，但全部合在一起放不下。請檢查下方數量是不是填多了，或有沒有標錯格子。';
+    return `「${TYPES[k].name}」目前還有 ${counts[k]} 個，但棋盤上已經沒有任何空位放得下它。請檢查有沒有標錯格子。`;
+  return '每種寶藏單獨看都放得下，但全部合在一起放不下。請檢查有沒有標錯格子。';
 }
 function placeName(cells){
   const rs=cells.map(x=>Math.floor(x/N)+1),cs=cells.map(x=>x%N+1);
@@ -461,7 +508,7 @@ function render(){
   }
   // 合併顯示：只剩 1 個寶藏時，同一個可能位置的格子合成一格
   bmap=new Map();const hidden=new Set();
-  if(!dirty&&blocks)for(const b of blocks){
+  if(!dirty&&!running&&blocks)for(const b of blocks){
     const rs=b.cells.map(x=>Math.floor(x/N)),cs=b.cells.map(x=>x%N);
     const a=Math.min(...b.cells);
     bmap.set(a,{cells:b.cells,pr:b.pr,top:b.top,h:Math.max(...rs)-Math.min(...rs)+1,w:Math.max(...cs)-Math.min(...cs)+1});
@@ -497,8 +544,10 @@ function render(){
   }
   const sg=document.getElementById("sug");
   const need=remTotal();
-  if(dirty){
-    sg.innerHTML='盤面已變更，請按「計算機率」更新建議。<br><span class="small">格子上淡色的 % 是上次的結果，僅供參考。</span>';
+  if(running){
+    sg.innerHTML="計算中…";
+  }else if(dirty){
+    sg.innerHTML='盤面已變更，請按「計算機率」更新建議。<br><span class="small">格子上的 % 是上次的結果，僅供參考。</span>';
   }else if(!samples){
     sg.innerHTML="⚠️ 找不到符合目前資料的擺法，所以格子沒有顯示機率。<br>"+diagnose();
   }else if(need===0){
@@ -517,9 +566,7 @@ function render(){
       for(let i=0;i<N*N;i++)if(state[i]===0&&prob[i]>=1-1e-9)sure.push(i);
       if(sure.length)t+=`<br><b>一定有寶藏：</b>`+sure.map(pos).join("、");
     }
-    t+=exact
-      ?`<br><span class="small">精確計算（列舉全部 ${samples} 種可能擺法），剩 ${need} 個寶藏未挖完</span>`
-      :`<br><span class="small">有效模擬 ${samples} 次（等效樣本約 ${Math.round(ess)}，機率誤差約 ±${(50/Math.sqrt(ess||1)).toFixed(1)}%），剩 ${need} 個寶藏未挖完 ${running?`｜精進中 ${(elapsed/1000).toFixed(1)}/10 秒`:'｜計算完成'}</span>`;
+    t+=`<br><span class="small">精確計算，共 ${samples.toLocaleString("zh-TW",{maximumFractionDigits:0})} 種可能擺法，剩 ${need} 個寶藏未挖完</span>`;
     sg.innerHTML=t;
   }
   document.querySelectorAll(".mode").forEach(b=>b.classList.toggle("on",b.dataset.m===mode));
@@ -532,7 +579,7 @@ function render(){
 function updateCalc(){
   const b=document.getElementById("calc");
   let t,cls="calcbtn";
-  if(running){t=`計算中… ${(elapsed/1000).toFixed(1)}/${TOTAL_MS/1000} 秒`;cls+=" busy"}
+  if(running){t="計算中…";cls+=" busy"}
   else if(dirty){t="▶ 計算機率（盤面已變更）";cls+=" hot"}
   else if(!samples){t="⚠️ 找不到符合的擺法（看下方說明）";cls+=" bad"}
   else t="▶ 重新計算";
