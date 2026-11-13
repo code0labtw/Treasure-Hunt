@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>挖地尋寶 推算助手</title>
+<script src="access.js"></script>
 <style>
 :root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
 --bg:#faf7f0;--fg:#2b2418;--card:#fff;--line:#d9cfb8;--muted:#7a6d55;--empty:#cfcabd;--treasure:#f2c230;--done:#7bb67e;--accent:#b8651b}
@@ -300,65 +301,54 @@ function solveDP(){
   const code0=ks.reduce((a,k,q)=>a+counts[k]*mult[q],0);
   if(!ok[code0])return {W:0,hits:new Float64Array(NN),ph:emptyPh()};
   const pidx=new Int32Array(1<<19).fill(-1);
-  const bufs=[new Float64Array(CM),new Float64Array(CM),new Float64Array(CM)];
-  const getBuf=(slot,sz)=>{if(bufs[slot].length<sz)bufs[slot]=new Float64Array(Math.ceil(sz*1.25));return bufs[slot]};
-  let tmpC=new Uint16Array(1<<16),tmpV=new Float64Array(1<<16);
-  // 從第 i 層走到第 i+1 層
-  function step(i,P,D,alive,outSlot){
-    const an=anchors[i],na=an.length,rev=state[i]===2;
+  let buf=new Float64Array(CM),tmpC=new Uint16Array(1<<16),tmpV=new Float64Array(1<<16);
+  // 從第 i 層走到第 i+1 層：輸入、輸出都是稀疏列（只存非零項，實測表格只有約 15% 非零）
+  function step(i,C){
+    const an=anchors[i],na=an.length,rev=state[i]===2,sp=C.sp,rs=C.rs,sc=C.sc,sv=C.sv,nr=sp.length;
     const nP=[];
-    for(let t=0;t<alive.length;t++){
-      const p=P[alive[t]];
+    for(let r=0;r<nr;r++){
+      const p=sp[r];
       if(p&1){const np=p>>>1;if(pidx[np]<0){pidx[np]=nP.length;nP.push(np)}continue}
       if(!rev){const np=p>>>1;if(pidx[np]<0){pidx[np]=nP.length;nP.push(np)}}
       for(let a=0;a<na;a++)if((p&an[a].mask)===0){const np=(p|an[a].mask)>>>1;if(pidx[np]<0){pidx[np]=nP.length;nP.push(np)}}
     }
     const nn=nP.length,need_=nn*CM;
-    const D2=getBuf(outSlot,need_);D2.fill(0,0,need_);
-    for(let t=0;t<alive.length;t++){
-      const r=alive[t],base=r*CM,p=P[r];
+    if(buf.length<need_)buf=new Float64Array(Math.ceil(need_*1.25));
+    const D2=buf;D2.fill(0,0,need_);
+    for(let r=0;r<nr;r++){
+      const p=sp[r],s0=rs[r],s1=rs[r+1];
       if(p&1||!rev){
         const nb=pidx[p>>>1]*CM;
-        for(let c=0;c<CM;c++)D2[nb+c]+=D[base+c];
+        for(let s=s0;s<s1;s++)D2[nb+sc[s]]+=sv[s];
       }
       if(p&1)continue;
       for(let a=0;a<na;a++){
         const A=an[a];
         if(p&A.mask)continue;
-        const nb=pidx[(p|A.mask)>>>1]*CM-A.m,l=vc[A.q];
-        for(let j=0;j<l.length;j++){const c=l[j];D2[nb+c]+=D[base+c]}
+        const nb=pidx[(p|A.mask)>>>1]*CM-A.m,d=dig[A.q];
+        for(let s=s0;s<s1;s++){const c=sc[s];if(d[c]>0)D2[nb+c]+=sv[s]}
       }
     }
     const okb=(i+1)*CM,sn=suf[i+1];
     if(tmpC.length<need_){tmpC=new Uint16Array(need_);tmpV=new Float64Array(need_)}
-    const rowStart=[0],keepP=[],aliveN=[];let cnt=0;
+    const rowStart=[0],keepP=[];let cnt=0;
     for(let r=0;r<nn;r++){
       const np=nP[r],lim=sn-pcT[np],base=r*CM;let any=false;
       for(let c=0;c<CM;c++){
         const v=D2[base+c];
-        if(v!==0){
-          if(ok[okb+c]===1&&need[c]<=lim){tmpC[cnt]=c;tmpV[cnt]=v;cnt++;any=true}
-          else D2[base+c]=0;
-        }
+        if(v!==0&&ok[okb+c]===1&&need[c]<=lim){tmpC[cnt]=c;tmpV[cnt]=v;cnt++;any=true}
       }
-      if(any){keepP.push(np);rowStart.push(cnt);aliveN.push(r)}
+      if(any){keepP.push(np);rowStart.push(cnt)}
     }
     for(let r=0;r<nn;r++)pidx[nP[r]]=-1;
-    return {P:Int32Array.from(nP),D:D2,alive:Int32Array.from(aliveN),
-      comp:{sp:Int32Array.from(keepP),rs:Int32Array.from(rowStart),sc:tmpC.slice(0,cnt),sv:tmpV.slice(0,cnt)}};
+    return {sp:Int32Array.from(keepP),rs:Int32Array.from(rowStart),sc:tmpC.slice(0,cnt),sv:tmpV.slice(0,cnt)};
   }
-  // 正推：偶數層保存，奇數層倒推時再重算（省記憶體）
+  // 正推：每一層都存起來，倒推時直接用（用記憶體換掉重算）
   const ST=new Array(NN+1);
   ST[0]={sp:Int32Array.of(0),rs:Int32Array.of(0,1),sc:Uint16Array.of(code0),sv:Float64Array.of(1)};
-  {
-    let P=Int32Array.of(0),alive=Int32Array.of(0),slot=0;
-    let D=getBuf(0,CM);D.fill(0,0,CM);D[code0]=1;
-    for(let i=0;i<NN;i++){
-      const r=step(i,P,D,alive,1-slot);
-      slot=1-slot;P=r.P;D=r.D;alive=r.alive;
-      if((i+1)%2===0)ST[i+1]=r.comp;
-      if(!alive.length)return {W:0,hits:new Float64Array(NN),ph:emptyPh()};
-    }
+  for(let i=0;i<NN;i++){
+    ST[i+1]=step(i,ST[i]);
+    if(!ST[i+1].sp.length)return {W:0,hits:new Float64Array(NN),ph:emptyPh()};
   }
   const ph=emptyPh();
   const last=ST[NN];
@@ -366,14 +356,7 @@ function solveDP(){
   // 倒推
   let Bn=Float64Array.of(1),nextP=last.sp;
   for(let i=NN-1;i>=0;i--){
-    let cur=ST[i];
-    if(!cur){
-      const pv=ST[i-1],n=pv.sp.length;
-      const Dd=getBuf(2,n*CM);Dd.fill(0,0,n*CM);
-      for(let r=0;r<n;r++)for(let s=pv.rs[r];s<pv.rs[r+1];s++)Dd[r*CM+pv.sc[s]]=pv.sv[s];
-      const al=new Int32Array(n);for(let r=0;r<n;r++)al[r]=r;
-      cur=step(i-1,pv.sp,Dd,al,0).comp;
-    }
+    const cur=ST[i];
     for(let r=0;r<nextP.length;r++)pidx[nextP[r]]=r;
     const P_=cur.sp,R_=cur.rs,C_=cur.sc,V_=cur.sv,an=anchors[i],na=an.length,rev=state[i]===2;
     const Bc=new Float64Array(P_.length*CM);
@@ -414,7 +397,11 @@ function finalize(hits,W,ph){
   for(let i=0;i<N*N;i++)if(state[i]===0)unk.push(i);
   unk.sort((x,y)=>prob[y]-prob[x]);
   const top=W&&unk.length?prob[unk[0]]:0;
-  picks=W?unk.filter(i=>prob[i]>0&&prob[i]>=top-1e-9).slice(0,8):[];
+  // 機率相同時，優先挖「挖開後結果最分散」的格子（空格＋各種可能的整件寶藏位置，資訊量最大）
+  const H=new Float64Array(N*N);
+  for(const k of ORDER)PL[k].forEach((pl,ix)=>{const q=ph[k][ix]/W;if(q>0)for(const x of pl)H[x]-=q*Math.log(q)});
+  const h=i=>H[i]-(1-prob[i])*Math.log(1-prob[i]||1);
+  picks=W?unk.filter(i=>prob[i]>0&&prob[i]>=top-1e-9).sort((a,b)=>h(b)-h(a)).slice(0,8):[];
   // 只剩 1 個寶藏、且每個可能位置互不重疊 → 把同一個位置的格子合併成一個機率
   if(W&&remTotal()===1){
     const k=ORDER.find(k=>counts[k]>0);
